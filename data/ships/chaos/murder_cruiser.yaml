@@ -1,0 +1,78 @@
+id: murder_cruiser
+name: "Murder-class Cruiser"
+classification: cruiser
+faction: chaos_fleet
+hull_cost: 120
+leadership: 7
+commander_level_required: 5
+upkeep: 15
+description: >
+  The Murder-class is a fast, lance-heavy cruiser favored by Chaos fleets.
+  Where Imperial cruisers rely on broadsides of macro-cannon fire, the Murder
+  strikes with precision lance beams that cut through armor like a hot knife.
+
+hull:
+  hits: 10
+  length: 5.0
+  armor_prow: 5
+  armor_port: 5
+  armor_starboard: 5
+  armor_stern: 4
+
+movement:
+  speed: 25
+  turn_rate: 45
+  turn_delay: 10
+  combustion_max: 100
+
+shields: 2
+turrets: 2
+
+subsystems:
+  - generator
+  - deck
+  - engines
+  - weapons
+
+weapon_slots:
+  - id: 1
+    name: "Port Battery"
+    arc: port
+    size: medium
+    allowed_types: [battery]
+
+  - id: 2
+    name: "Starboard Battery"
+    arc: starboard
+    size: medium
+    allowed_types: [battery]
+
+  - id: 3
+    name: "Port Lance Array"
+    arc: port
+    size: medium
+    allowed_types: [lance]
+
+  - id: 4
+    name: "Starboard Lance Array"
+    arc: starboard
+    size: medium
+    allowed_types: [lance]
+
+upgrade_slots: 3
+doctrine_slot: true
+
+default_loadout:
+  weapons:
+    1: macro_cannon_2
+    2: macro_cannon_2
+    3: lance_2
+    4: lance_2
+  upgrades: []
+  doctrine: null
+
+boarding:
+  assault_actions: 3
+
+morale:
+  base_max: 100

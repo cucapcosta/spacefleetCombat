@@ -1,0 +1,23 @@
+id: chaos_fleet
+name: "Chaos Fleet"
+description: >
+  The warships of Chaos are ancient vessels that have prowled the warp for
+  millennia. Faster and more maneuverable than their Imperial counterparts,
+  Chaos fleets rely on superior speed, longer-range weapons, and devastating
+  lance arrays to pick apart slower enemies. They lack torpedoes but make up
+  for it with raw aggression and the dark blessings of the Ruinous Powers.
+
+traits:
+  prow_armor_bonus: 0
+  torpedo_access: false      # Chaos fleets generally lack torpedo capability
+  nova_cannon_access: false
+  speed_bonus: 5             # Chaos ships tend to be faster (already in profiles)
+
+fleet_rules:
+  min_escort_squadron: 2
+  max_escort_squadron: 6
+  battleship_ratio: 3
+  flagship_leadership_bonus: 1
+
+color: red                    # CLI display color for this faction
+symbol: "C"                   # Map symbol

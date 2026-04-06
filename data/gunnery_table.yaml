@@ -1,0 +1,46 @@
+# Gunnery Table for Weapon Batteries
+#
+# Determines how many hits a weapon battery scores based on:
+#   1. Firepower (strength of the weapon)
+#   2. Range band (close / medium / long)
+#   3. Target aspect (closing / abeam / running)
+#
+# The table maps (firepower, column) -> number of hits.
+# Column shifts:
+#   - Closing target (showing prow):     shift LEFT  (harder to hit)
+#   - Abeam target (showing broadside):  no shift    (standard)
+#   - Running target (showing stern):    shift RIGHT (easier to hit)
+#   - Lock On special order:             shift RIGHT (bonus accuracy)
+#   - Long range (>50% max):             halve firepower (round up)
+
+# Columns from left to right represent increasing hit chance
+# Column names: far_closing, closing, abeam, running, far_running
+# (far_closing and far_running are edge cases from multiple shifts)
+
+gunnery_columns:
+  - far_closing    # -2 shifts
+  - closing        # -1 shift
+  - abeam          # base (0)
+  - running        # +1 shift
+  - far_running    # +2 shifts
+
+# Table: firepower -> [far_closing, closing, abeam, running, far_running] hits
+gunnery_table:
+  1:  [0, 0, 1, 1, 1]
+  2:  [0, 1, 1, 1, 2]
+  3:  [0, 1, 1, 2, 2]
+  4:  [1, 1, 2, 2, 3]
+  5:  [1, 1, 2, 3, 3]
+  6:  [1, 2, 2, 3, 4]
+  7:  [1, 2, 3, 3, 4]
+  8:  [1, 2, 3, 4, 5]
+  9:  [2, 2, 3, 4, 5]
+  10: [2, 3, 4, 4, 6]
+  11: [2, 3, 4, 5, 6]
+  12: [2, 3, 4, 5, 7]
+  13: [3, 3, 5, 6, 7]
+  14: [3, 4, 5, 6, 8]
+  15: [3, 4, 5, 7, 8]
+  16: [3, 4, 6, 7, 9]
+
+# For firepower > 16, extrapolate or split into multiple attacks

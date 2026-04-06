@@ -1,0 +1,92 @@
+id: emperor_battleship
+name: "Emperor-class Battleship"
+classification: battleship
+faction: imperial_navy
+hull_cost: 280
+leadership: 8
+commander_level_required: 9
+upkeep: 30
+description: >
+  The Emperor-class is the largest and most powerful warship commonly deployed
+  by the Imperial Navy. Bristling with weapon mounts and carrying vast
+  crew complements, it is the ultimate expression of naval might.
+
+hull:
+  hits: 12
+  length: 8.0
+  armor_prow: 6
+  armor_port: 5
+  armor_starboard: 5
+  armor_stern: 4
+
+movement:
+  speed: 15
+  turn_rate: 45
+  turn_delay: 15
+  combustion_max: 100
+
+shields: 4
+turrets: 4
+
+subsystems:
+  - generator
+  - deck
+  - engines
+  - weapons
+
+weapon_slots:
+  - id: 1
+    name: "Port Broadside Primary"
+    arc: port
+    size: large
+    allowed_types: [battery]
+
+  - id: 2
+    name: "Starboard Broadside Primary"
+    arc: starboard
+    size: large
+    allowed_types: [battery]
+
+  - id: 3
+    name: "Port Dorsal"
+    arc: port
+    size: large
+    allowed_types: [battery, lance]
+
+  - id: 4
+    name: "Starboard Dorsal"
+    arc: starboard
+    size: large
+    allowed_types: [battery, lance]
+
+  - id: 5
+    name: "Prow Battery"
+    arc: prow
+    size: medium
+    allowed_types: [battery]
+
+  - id: 6
+    name: "Prow Secondary"
+    arc: prow
+    size: medium
+    allowed_types: [battery, lance]
+
+upgrade_slots: 4
+doctrine_slot: true
+
+default_loadout:
+  weapons:
+    1: macro_cannon_4
+    2: macro_cannon_4
+    3: lance_3
+    4: lance_3
+    5: macro_cannon_3
+    6: macro_cannon_3
+  upgrades: []
+  doctrine: null
+
+boarding:
+  assault_actions: 4
+
+morale:
+  base_max: 120

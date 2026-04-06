@@ -1,0 +1,48 @@
+id: fleet_engagement
+name: "Fleet Engagement"
+description: >
+  A straightforward battle between two fleets. Both sides deploy within their
+  deployment zones and fight until one fleet is destroyed, disengages, or
+  concedes. The classic pitched battle of void warfare.
+
+battlefield:
+  width: 240
+  height: 180
+
+deployment:
+  player:
+    zone:
+      x_min: 0
+      x_max: 240
+      y_min: 0
+      y_max: 30
+    facing: 0           # Ships face "north" (positive Y)
+
+  enemy:
+    zone:
+      x_min: 0
+      x_max: 240
+      y_min: 150
+      y_max: 180
+    facing: 180          # Ships face "south" (negative Y)
+
+victory_conditions:
+  - type: fleet_destroyed
+    description: "Destroy or cripple all enemy capital ships"
+    threshold: 0.75      # 75% of enemy points value destroyed/crippled
+
+  - type: fleet_disengaged
+    description: "Force the enemy fleet to disengage"
+    threshold: 0.5       # 50% of enemy fleet disengaged
+
+  - type: turn_limit
+    max_turns: 20
+    description: "After 20 turns, the side with more surviving points wins"
+
+special_rules: []
+
+point_budgets:
+  small: 500
+  medium: 1000
+  large: 1500
+  massive: 2500

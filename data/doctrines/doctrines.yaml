@@ -1,0 +1,114 @@
+# Ship Doctrines
+# One per ship. Faction-specific bonuses reflecting the ship's operational specialty.
+
+doctrines:
+  # === IMPERIAL NAVY ===
+
+  commissariat:
+    name: "Commissariat"
+    faction: imperial_navy
+    cost: 15
+    description: >
+      A Commissar is assigned to the ship. Ship cannot mutiny.
+      Morale cannot drop below 20.
+    effects:
+      mutiny_immune: true
+      morale_floor: 20
+
+  mechanicus_rites:
+    name: "Mechanicus Rites"
+    faction: imperial_navy
+    cost: 20
+    description: >
+      Tech-priests of the Adeptus Mechanicus maintain the ship's systems.
+      Grants +1 upgrade slot on this ship.
+    effects:
+      upgrade_slots: +1
+
+  space_marine_detachment:
+    name: "Space Marine Detachment"
+    faction: imperial_navy
+    cost: 25
+    description: >
+      A squad of Space Marines is stationed aboard. +2 boarding assault
+      actions. The ship is immune to enemy boarding.
+    effects:
+      assault_actions: +2
+      boarding_immune: true
+
+  navy_gunnery_school:
+    name: "Navy Gunnery School"
+    faction: imperial_navy
+    cost: 20
+    description: >
+      The ship's gunnery crews are academy-trained. All batteries on
+      this ship gain +1 gunnery column shift.
+    effects:
+      gunnery_column_shift: +1
+
+  torpedo_specialists:
+    name: "Torpedo Specialists"
+    faction: imperial_navy
+    cost: 15
+    description: >
+      Expert torpedo crews. Torpedo strength +2 and reload time -1 turn.
+    effects:
+      torpedo_strength: +2
+      torpedo_reload_reduction: 1
+
+  # === CHAOS FLEET ===
+
+  mark_of_khorne:
+    name: "Mark of Khorne"
+    faction: chaos_fleet
+    cost: 20
+    description: >
+      Blessed by the Blood God. +3 boarding assault actions.
+      Cannot use lance weapons (Khorne despises sorcery).
+    effects:
+      assault_actions: +3
+      lances_disabled: true
+
+  mark_of_tzeentch:
+    name: "Mark of Tzeentch"
+    faction: chaos_fleet
+    cost: 20
+    description: >
+      The Changer of Ways enhances the ship's lances. Lances hit on 3+
+      instead of 4+. -1 hull (warp instability).
+    effects:
+      lance_hit_threshold: 3
+      hull_modifier: -1
+
+  mark_of_nurgle:
+    name: "Mark of Nurgle"
+    faction: chaos_fleet
+    cost: 15
+    description: >
+      The Plague God's blessing makes the ship unnaturally resilient.
+      +2 hull. -5 speed.
+    effects:
+      hull_modifier: +2
+      speed_modifier: -5
+
+  mark_of_slaanesh:
+    name: "Mark of Slaanesh"
+    faction: chaos_fleet
+    cost: 15
+    description: >
+      The Dark Prince grants unnatural speed and reflexes.
+      +10 speed. -1 shield.
+    effects:
+      speed_modifier: +10
+      shield_modifier: -1
+
+  corsair_raiders:
+    name: "Corsair Raiders"
+    faction: chaos_fleet
+    cost: 15
+    description: >
+      A crew of vicious pirates and reavers. +1 assault action.
+      +10% chance to salvage credits from destroyed enemy ships.
+    effects:
+      assault_actions: +1
+      salvage_chance: 0.10

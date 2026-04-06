@@ -1,0 +1,166 @@
+# Ship Upgrade Catalog
+# Upgrades are equipped into upgrade slots on ships.
+# Each ship class has a limited number of upgrade slots.
+
+upgrades:
+  # === DEFENSIVE ===
+
+  additional_void_shield:
+    name: "Additional Void Shield"
+    category: defensive
+    cost: 30
+    effect:
+      shields: +1
+    description: "An extra void shield generator. +1 shield capacity."
+
+  auxiliary_shield_capacitor:
+    name: "Auxiliary Shield Capacitor"
+    category: defensive
+    cost: 20
+    effect:
+      shield_regen: +1
+    description: "Faster shield recharge systems. +1 shield regen per End Phase."
+
+  belt_armour:
+    name: "Belt Armour"
+    category: defensive
+    cost: 25
+    effect:
+      first_crit_ignored: true
+    description: "Reinforced hull plating. First critical hit to any subsystem is ignored."
+
+  fire_suppression_system:
+    name: "Fire Suppression System"
+    category: defensive
+    cost: 15
+    effect:
+      fire_extinguish_chance: 0.50
+    description: "Automated fire control. Fires have 50% chance to self-extinguish each turn."
+
+  extra_turrets:
+    name: "Extra Turrets"
+    category: defensive
+    cost: 15
+    effect:
+      turrets: +2
+    description: "Additional point-defense batteries. +2 turret rating."
+
+  reinforced_prow:
+    name: "Reinforced Prow"
+    category: defensive
+    cost: 20
+    effect:
+      armor_prow: +1
+    description: "Thickened prow plating. +1 prow armor value."
+
+  # === OFFENSIVE ===
+
+  armour_piercing_ammo:
+    name: "Armour-Piercing Ammunition"
+    category: offensive
+    cost: 25
+    effect:
+      ap_close_range: 1
+    description: "Specialized rounds that penetrate armor at close range. Ignore 1 armor at close range."
+
+  turbo_weaponry:
+    name: "Turbo Weaponry"
+    category: offensive
+    cost: 30
+    effect:
+      battery_strength: +1
+    description: "Overcharged weapon capacitors. +1 strength to all batteries on this ship."
+
+  disruption_overcharge:
+    name: "Disruption Overcharge"
+    category: offensive
+    cost: 25
+    effect:
+      lance_critical_bonus: 0.25
+    description: "Modified lance emitters that destabilize targets. +25% lance critical chance."
+
+  automated_reload:
+    name: "Automated Reload System"
+    category: offensive
+    cost: 20
+    effect:
+      torpedo_reload_reduction: 1
+    description: "Faster torpedo loading mechanisms. Torpedo reload takes 1 fewer turn."
+
+  # === MOBILITY ===
+
+  efficient_plasma_thrusters:
+    name: "Efficient Plasma Thrusters"
+    category: mobility
+    cost: 20
+    effect:
+      speed: +5
+    description: "Upgraded engine nozzles. +5 speed."
+
+  enhanced_maneuvers:
+    name: "Enhanced Maneuvering Thrusters"
+    category: mobility
+    cost: 20
+    effect:
+      turn_rate: +15
+    description: "Additional maneuvering jets. +15° turn rate."
+
+  power_ram:
+    name: "Power Ram"
+    category: mobility
+    cost: 15
+    effect:
+      ram_damage_multiplier: 1.5
+    description: "Reinforced prow spur. +50% ramming damage dealt."
+
+  extended_combustion_tanks:
+    name: "Extended Combustion Tanks"
+    category: mobility
+    cost: 15
+    effect:
+      combustion_max: +25
+      combustion_regen: +5
+    description: "Larger fuel reserves. +25 max combustion gauge, +5 regen per turn."
+
+  # === UTILITY ===
+
+  improved_augur_array:
+    name: "Improved Augur Array"
+    category: utility
+    cost: 20
+    effect:
+      sensor_range: +20
+    description: "Enhanced sensors. +20 GU detection range."
+
+  crew_quarters:
+    name: "Expanded Crew Quarters"
+    category: utility
+    cost: 15
+    effect:
+      morale_max: +15
+    description: "Better living conditions for the crew. +15 max morale."
+
+  veteran_crew:
+    name: "Veteran Crew Assignment"
+    category: utility
+    cost: 25
+    effect:
+      starting_crew_tier: 2
+    description: "Ship starts with an Experienced crew instead of Green."
+
+  navigators_chamber:
+    name: "Navigator's Chamber"
+    category: utility
+    cost: 20
+    flagship_only: true
+    effect:
+      micro_warp_charges: +1
+    description: "Enhanced navigator quarters. +1 Micro Warp Jump charge (flagship only)."
+
+  master_of_signals:
+    name: "Master of Signals"
+    category: utility
+    cost: 20
+    effect:
+      stance_cooldown_reduction: 1
+    description: "Expert communications officer. Stance switch cooldown reduced by 1 turn."

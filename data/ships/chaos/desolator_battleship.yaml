@@ -1,0 +1,92 @@
+id: desolator_battleship
+name: "Desolator-class Battleship"
+classification: battleship
+faction: chaos_fleet
+hull_cost: 240
+leadership: 8
+commander_level_required: 9
+upkeep: 30
+description: >
+  The Desolator-class is a terrifying lance-armed battleship. Where the Imperial
+  Emperor-class overwhelms with sheer volume of fire, the Desolator cuts
+  through shields and armor with devastating lance volleys from every angle.
+
+hull:
+  hits: 12
+  length: 8.0
+  armor_prow: 5
+  armor_port: 5
+  armor_starboard: 5
+  armor_stern: 4
+
+movement:
+  speed: 20
+  turn_rate: 45
+  turn_delay: 15
+  combustion_max: 100
+
+shields: 4
+turrets: 3
+
+subsystems:
+  - generator
+  - deck
+  - engines
+  - weapons
+
+weapon_slots:
+  - id: 1
+    name: "Port Battery"
+    arc: port
+    size: medium
+    allowed_types: [battery]
+
+  - id: 2
+    name: "Starboard Battery"
+    arc: starboard
+    size: medium
+    allowed_types: [battery]
+
+  - id: 3
+    name: "Port Lance Array"
+    arc: port
+    size: large
+    allowed_types: [lance]
+
+  - id: 4
+    name: "Starboard Lance Array"
+    arc: starboard
+    size: large
+    allowed_types: [lance]
+
+  - id: 5
+    name: "Prow Lance Battery"
+    arc: prow
+    size: large
+    allowed_types: [lance]
+
+  - id: 6
+    name: "Prow Secondary"
+    arc: prow
+    size: medium
+    allowed_types: [battery, lance]
+
+upgrade_slots: 4
+doctrine_slot: true
+
+default_loadout:
+  weapons:
+    1: macro_cannon_3
+    2: macro_cannon_3
+    3: lance_3
+    4: lance_3
+    5: lance_3
+    6: lance_2
+  upgrades: []
+  doctrine: null
+
+boarding:
+  assault_actions: 4
+
+morale:
+  base_max: 120

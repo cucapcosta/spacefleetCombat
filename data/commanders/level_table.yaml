@@ -1,0 +1,123 @@
+# Commander Level Progression Table
+
+xp_sources:
+  battle_victory: 100
+  battle_defeat_survived: 30
+  enemy_capital_destroyed: 25
+  enemy_escort_destroyed: 10
+  objective_completed: 50
+  story_mission_completed: 100
+  first_blood: 15
+
+levels:
+  1:
+    xp_required: 0
+    fleet_capacity: 400
+    unlocks:
+      - "1st active ability slot"
+      - "Escort hulls available"
+    title: "Sub-Admiral"
+
+  2:
+    xp_required: 150
+    fleet_capacity: 500
+    unlocks:
+      - "1st passive skill slot"
+    title: "Sub-Admiral"
+
+  3:
+    xp_required: 400
+    fleet_capacity: 650
+    unlocks:
+      - "2nd active ability slot"
+      - "Light cruiser hulls available"
+    title: "Admiral"
+
+  4:
+    xp_required: 750
+    fleet_capacity: 800
+    unlocks:
+      - "2nd passive skill slot"
+    title: "Admiral"
+
+  5:
+    xp_required: 1200
+    fleet_capacity: 1000
+    unlocks:
+      - "3rd active ability slot"
+      - "Cruiser hulls available"
+    title: "Admiral"
+
+  6:
+    xp_required: 1800
+    fleet_capacity: 1200
+    unlocks:
+      - "3rd passive skill slot"
+    title: "Vice-Admiral"
+
+  7:
+    xp_required: 2500
+    fleet_capacity: 1500
+    unlocks:
+      - "4th active ability slot"
+      - "Battlecruiser hulls available"
+    title: "Vice-Admiral"
+
+  8:
+    xp_required: 3400
+    fleet_capacity: 1800
+    unlocks:
+      - "4th passive skill slot"
+    title: "Rear Admiral"
+
+  9:
+    xp_required: 4500
+    fleet_capacity: 2200
+    unlocks:
+      - "Battleship hulls available"
+    title: "Lord Admiral"
+
+  10:
+    xp_required: 6000
+    fleet_capacity: 2500
+    unlocks:
+      - "Fleet capacity bonus"
+      - "Title: Lord Admiral"
+    title: "Lord Admiral"
+
+crew_experience_tiers:
+  0:
+    name: "Green"
+    battles_required: 0
+    morale_bonus: 0
+    accuracy_bonus: 0
+    cooldown_reduction: 0
+
+  1:
+    name: "Trained"
+    battles_required: 2
+    morale_bonus: 5
+    accuracy_bonus: 0
+    cooldown_reduction: 0.05
+
+  2:
+    name: "Experienced"
+    battles_required: 5
+    morale_bonus: 10
+    accuracy_bonus: 0.05
+    cooldown_reduction: 0.10
+
+  3:
+    name: "Veteran"
+    battles_required: 10
+    morale_bonus: 15
+    accuracy_bonus: 0.10
+    cooldown_reduction: 0.15
+
+  4:
+    name: "Elite"
+    battles_required: 20
+    morale_bonus: 20
+    accuracy_bonus: 0.15
+    cooldown_reduction: 0.20
+    firepower_bonus: 1

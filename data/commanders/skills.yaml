@@ -1,0 +1,246 @@
+# Commander Skills
+# Active abilities (flagship only) and passive skills (fleet-wide).
+
+# === ACTIVE ABILITIES (used from flagship, cooldown + charges) ===
+
+active_abilities:
+  # --- Universal ---
+
+  micro_warp_jump:
+    name: "Micro Warp Jump"
+    category: universal
+    description: >
+      Teleport the flagship to any position within an allied ship's sensor
+      range. Requires 1 turn preparation. Can be interrupted by boarding.
+    cooldown: 5
+    charges: 2
+    preparation_turns: 1
+    restrictions:
+      - "Charges reduced by 1 for battleship-class flagships"
+      - "Can be interrupted by boarding actions during preparation"
+
+  emergency_repairs:
+    name: "Emergency Repairs"
+    category: universal
+    description: >
+      Restore D3 hull points to the flagship. Extinguish all fires.
+      Repair one temporary subsystem critical.
+    cooldown: 4
+    charges: 2
+    effects:
+      hull_restore: D3
+      extinguish_fires: true
+      repair_temp_crit: 1
+
+  call_to_arms:
+    name: "Call to Arms"
+    category: universal
+    description: >
+      Rally nearby ships. All friendly ships within 40 GU restore 30 morale.
+      Cancels mutiny on affected ships.
+    cooldown: 5
+    charges: 3
+    range: 40
+    effects:
+      morale_restore: 30
+      cancel_mutiny: true
+
+  augur_probe:
+    name: "Augur Probe"
+    category: universal
+    description: >
+      Deploy a sensor probe at a target location within sensor range.
+      Provides Level 3 (Identified) detection in 30 GU radius for 3 turns.
+    cooldown: 3
+    charges: 3
+    effects:
+      probe_radius: 30
+      probe_duration: 3
+      detection_level: 3
+
+  concentrated_fire:
+    name: "Concentrated Fire"
+    category: universal
+    description: >
+      Designate a target. All friendly ships within 30 GU gain +1 gunnery
+      column shift against that target for 2 turns.
+    cooldown: 5
+    charges: 2
+    range: 30
+    effects:
+      gunnery_column_shift: +1
+      duration: 2
+
+  # --- Imperial Navy ---
+
+  torpedo_barrage:
+    name: "Torpedo Barrage"
+    category: imperial_navy
+    description: >
+      All torpedo-armed ships within 50 GU immediately fire a bonus torpedo
+      salvo. Does not consume torpedo stock.
+    cooldown: 6
+    charges: 1
+    range: 50
+    faction: imperial_navy
+    effects:
+      bonus_torpedo_salvo: true
+
+  boarding_assault:
+    name: "Boarding Assault"
+    category: imperial_navy
+    description: >
+      The flagship launches a powerful boarding action at extended range
+      (15 GU instead of 5 GU). Delivers 3 assault actions.
+    cooldown: 5
+    charges: 2
+    range: 15
+    faction: imperial_navy
+    effects:
+      assault_actions: 3
+
+  # --- Chaos Fleet ---
+
+  warp_rift:
+    name: "Warp Rift"
+    category: chaos_fleet
+    description: >
+      Tear open a rift in reality at a target point. All ships within 15 GU
+      take D3 hull damage and lose 20 morale. Affects friend and foe.
+    cooldown: 6
+    charges: 1
+    range: 80
+    faction: chaos_fleet
+    effects:
+      area_damage: D3
+      area_radius: 15
+      morale_damage: 20
+      affects_allies: true
+
+  mark_of_chaos:
+    name: "Mark of Chaos"
+    category: chaos_fleet
+    description: >
+      Channel dark energy through the flagship. Gains +2 lance strength
+      and immunity to morale loss for 3 turns.
+    cooldown: 7
+    charges: 1
+    faction: chaos_fleet
+    effects:
+      lance_strength_bonus: +2
+      morale_immunity: true
+      duration: 3
+
+
+# === PASSIVE SKILLS (always active, fleet-wide) ===
+
+passive_skills:
+  # --- Universal ---
+
+  short_burn_torpedoes:
+    name: "Short-Burn Torpedoes"
+    category: universal
+    description: "All torpedoes travel 50% faster."
+    effect:
+      torpedo_speed_modifier: 1.5
+
+  shield_harmonics:
+    name: "Shield Harmonics"
+    category: universal
+    description: "All ships regenerate +1 shield per End Phase."
+    effect:
+      fleet_shield_regen: +1
+
+  master_gunner:
+    name: "Master Gunner"
+    category: universal
+    description: "All weapon batteries gain +1 firepower at close range (within 50% max range)."
+    effect:
+      close_range_battery_bonus: +1
+
+  veteran_crews:
+    name: "Veteran Crews"
+    category: universal
+    description: "Fleet-wide morale loss reduced by 25%."
+    effect:
+      morale_loss_reduction: 0.25
+
+  swift_maneuvers:
+    name: "Swift Maneuvers"
+    category: universal
+    description: "All ships gain +5 speed."
+    effect:
+      fleet_speed_bonus: +5
+
+  reinforced_bulkheads:
+    name: "Reinforced Bulkheads"
+    category: universal
+    description: "Hull Breach critical hits deal no extra damage."
+    effect:
+      hull_breach_nullified: true
+
+  sensor_mastery:
+    name: "Sensor Mastery"
+    category: universal
+    description: "Fleet sensor range increased by 20 GU."
+    effect:
+      fleet_sensor_bonus: +20
+
+  iron_discipline:
+    name: "Iron Discipline"
+    category: universal
+    description: "Ships cannot mutiny while within 40 GU of the flagship."
+    effect:
+      anti_mutiny_range: 40
+
+  # --- Imperial Navy ---
+
+  prow_of_the_emperor:
+    name: "Prow of the Emperor"
+    category: imperial_navy
+    description: "All ships gain +1 prow armor."
+    faction: imperial_navy
+    effect:
+      fleet_prow_armor_bonus: +1
+
+  reload_drills:
+    name: "Reload Drills"
+    category: imperial_navy
+    description: "Torpedo reload takes 1 fewer turn fleet-wide."
+    faction: imperial_navy
+    effect:
+      fleet_torpedo_reload_reduction: 1
+
+  boarding_expertise:
+    name: "Boarding Expertise"
+    category: imperial_navy
+    description: "All boarding actions gain +1 assault action."
+    faction: imperial_navy
+    effect:
+      fleet_assault_bonus: +1
+
+  # --- Chaos Fleet ---
+
+  lance_mastery:
+    name: "Lance Mastery"
+    category: chaos_fleet
+    description: "All lances hit on 3+ instead of 4+."
+    faction: chaos_fleet
+    effect:
+      lance_hit_threshold: 3
+
+  dark_blessings:
+    name: "Dark Blessings"
+    category: chaos_fleet
+    description: "Ships regenerate 1 hull per End Phase while below 50% hull."
+    faction: chaos_fleet
+    effect:
+      crippled_hull_regen: 1
+
+  speed_of_chaos:
+    name: "Speed of Chaos"
+    category: chaos_fleet
+    description: "All Ahead Full grants +3D6 speed instead of +2D6."
+    faction: chaos_fleet
+    effect:
+      boost_dice: 3

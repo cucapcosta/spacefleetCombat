@@ -1,0 +1,71 @@
+id: slaughter_cruiser
+name: "Slaughter-class Cruiser"
+classification: cruiser
+faction: chaos_fleet
+hull_cost: 115
+leadership: 7
+commander_level_required: 5
+upkeep: 15
+description: >
+  The Slaughter-class is one of the fastest cruisers in any fleet, built for
+  aggressive pursuit and hit-and-run attacks. Its speed allows it to dictate
+  engagement range and exploit gaps in enemy formations.
+
+hull:
+  hits: 8
+  length: 5.0
+  armor_prow: 5
+  armor_port: 5
+  armor_starboard: 5
+  armor_stern: 4
+
+movement:
+  speed: 30
+  turn_rate: 45
+  turn_delay: 10
+  combustion_max: 100
+
+shields: 2
+turrets: 2
+
+subsystems:
+  - generator
+  - deck
+  - engines
+  - weapons
+
+weapon_slots:
+  - id: 1
+    name: "Port Broadside"
+    arc: port
+    size: medium
+    allowed_types: [battery]
+
+  - id: 2
+    name: "Starboard Broadside"
+    arc: starboard
+    size: medium
+    allowed_types: [battery]
+
+  - id: 3
+    name: "Prow Weapon"
+    arc: prow
+    size: medium
+    allowed_types: [lance, battery]
+
+upgrade_slots: 2
+doctrine_slot: true
+
+default_loadout:
+  weapons:
+    1: macro_cannon_3
+    2: macro_cannon_3
+    3: lance_2
+  upgrades: []
+  doctrine: null
+
+boarding:
+  assault_actions: 3
+
+morale:
+  base_max: 100

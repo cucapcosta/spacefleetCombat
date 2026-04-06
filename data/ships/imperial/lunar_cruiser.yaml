@@ -1,0 +1,78 @@
+id: lunar_cruiser
+name: "Lunar-class Cruiser"
+classification: cruiser
+faction: imperial_navy
+hull_cost: 130
+leadership: 7
+commander_level_required: 5
+upkeep: 15
+description: >
+  The Lunar-class is the workhorse of the Imperial Navy, a versatile cruiser
+  equally capable in broadside engagements and prow-first lance strikes.
+  Its balanced weapon slots make it suitable for any role.
+
+hull:
+  hits: 8
+  length: 5.0
+  armor_prow: 6
+  armor_port: 5
+  armor_starboard: 5
+  armor_stern: 4
+
+movement:
+  speed: 20
+  turn_rate: 45
+  turn_delay: 10
+  combustion_max: 100
+
+shields: 2
+turrets: 2
+
+subsystems:
+  - generator
+  - deck
+  - engines
+  - weapons
+
+weapon_slots:
+  - id: 1
+    name: "Port Broadside"
+    arc: port
+    size: medium
+    allowed_types: [battery]
+
+  - id: 2
+    name: "Starboard Broadside"
+    arc: starboard
+    size: medium
+    allowed_types: [battery]
+
+  - id: 3
+    name: "Prow Weapon"
+    arc: prow
+    size: medium
+    allowed_types: [battery, lance]
+
+  - id: 4
+    name: "Prow Torpedo Tubes"
+    arc: prow
+    size: torpedo
+    allowed_types: [torpedo]
+
+upgrade_slots: 3
+doctrine_slot: true
+
+default_loadout:
+  weapons:
+    1: macro_cannon_3
+    2: macro_cannon_3
+    3: lance_2
+    4: standard_torpedoes
+  upgrades: []
+  doctrine: null
+
+boarding:
+  assault_actions: 3
+
+morale:
+  base_max: 100

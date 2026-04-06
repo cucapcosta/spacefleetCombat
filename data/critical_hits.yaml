@@ -1,0 +1,88 @@
+# Critical Hit Table
+# When a hit penetrates armor, roll 2D6 for critical damage.
+# Each result applies additional effects beyond the hull damage.
+
+critical_hit_table:
+  # 2D6 roll -> effect
+  2:
+    name: "Shields Collapsed"
+    description: "A power surge overloads the void shield generators."
+    effect: shields_collapse
+    duration: 1              # turns until shields can regenerate
+    severity: minor
+
+  3:
+    name: "Thrusters Damaged"
+    description: "Maneuvering thrusters are smashed, leaving the ship unable to turn."
+    effect: thrusters_damaged
+    duration: permanent      # until repaired
+    severity: moderate
+
+  4:
+    name: "Armament Damaged"
+    description: "A weapon system is knocked offline by the impact."
+    effect: weapon_destroyed
+    random_weapon: true      # randomly select which weapon is disabled
+    duration: permanent
+    severity: moderate
+
+  5:
+    name: "Prow Armament Damaged"
+    description: "Forward weapon systems are wrecked by the hit."
+    effect: prow_weapons_destroyed
+    duration: permanent
+    severity: moderate
+
+  6:
+    name: "Engine Room Damaged"
+    description: "The main drive suffers critical damage, halving the ship's speed."
+    effect: engine_damaged
+    speed_modifier: 0.5
+    duration: permanent
+    severity: major
+
+  7:
+    name: "Hull Breach"
+    description: "The hull is torn open. Additional structural damage sustained."
+    effect: hull_breach
+    extra_damage: 1
+    severity: moderate
+
+  8:
+    name: "Engine Room Damaged"
+    description: "The main drive suffers critical damage, halving the ship's speed."
+    effect: engine_damaged
+    speed_modifier: 0.5
+    duration: permanent
+    severity: major
+
+  9:
+    name: "Fire!"
+    description: "Fires break out across multiple decks. The ship takes ongoing damage."
+    effect: fire
+    damage_per_turn: 1
+    duration: ongoing        # until extinguished (leadership check each turn)
+    severity: major
+
+  10:
+    name: "Bulkhead Collapse"
+    description: "Internal bulkheads buckle and collapse, causing massive structural damage."
+    effect: bulkhead_collapse
+    extra_damage_dice: "D3"  # roll D3 for extra hull damage
+    severity: critical
+
+  11:
+    name: "Bridge Destroyed"
+    description: "The command bridge is hit! The ship's leadership is severely impaired."
+    effect: bridge_destroyed
+    leadership_penalty: 3
+    duration: permanent
+    severity: critical
+
+  12:
+    name: "Magazine Detonation!"
+    description: "Ammunition stores ignite in a catastrophic chain reaction!"
+    effect: magazine_detonation
+    extra_damage_dice: "D6"
+    triggers_on_torpedoes: true  # extra D6 damage if ship carries torpedoes
+    severity: catastrophic

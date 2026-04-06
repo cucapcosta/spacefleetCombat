@@ -1,0 +1,58 @@
+# Ship Stances
+# Persistent operational modes. A ship is always in exactly one stance.
+# Switching stances has a cooldown (default 2 turns).
+
+stances:
+  standard:
+    name: "Standard"
+    description: "Normal operation. No bonuses or penalties."
+    switch_cooldown: 0
+    effects: {}
+
+  lock_on:
+    name: "Lock On"
+    description: >
+      Maximum firepower. Batteries gain accuracy bonus, lances can re-roll
+      misses, and all weapons have increased critical chance.
+    switch_cooldown: 2
+    effects:
+      gunnery_column_shift: +1
+      lance_reroll_misses: true
+      critical_chance_bonus: 0.25
+
+  brace_for_impact:
+    name: "Brace for Impact"
+    description: >
+      Defensive posture. Reduced incoming damage and extra armor saves,
+      but weapon output is halved.
+    switch_cooldown: 2
+    effects:
+      extra_armor_save: 6          # D6 >= this = extra save
+      hull_damage_reduction: 0.25  # 25% less hull damage
+      turret_accuracy_bonus: 0.50  # 50% better anti-torpedo
+      weapon_strength_modifier: 0.5  # all weapons halved
+
+  reload:
+    name: "Reload"
+    description: >
+      Reloading and recalibrating. Faster ability cooldowns and torpedo reload,
+      slightly improved battery fire rate, but reduced accuracy.
+    switch_cooldown: 2
+    effects:
+      ability_cooldown_reduction: 0.25  # 25% faster cooldowns
+      torpedo_reload_reduction: 1       # 1 fewer turn to reload
+      battery_strength_bonus: 1         # +1 battery strength
+      gunnery_column_shift: -1          # accuracy penalty
+
+  running_silent:
+    name: "Running Silent"
+    description: >
+      Stealth mode. Ship's detection signature is halved, making it much
+      harder to detect. Cannot fire weapons while silent — firing breaks
+      stealth immediately.
+    switch_cooldown: 3  # longer cooldown — committing to stealth is a big decision
+    effects:
+      detection_signature_modifier: 0.5   # 50% harder to detect
+      own_sensor_range_modifier: 0.5      # own sensors halved
+      cannot_fire: true                    # weapons disabled
+      breaks_on_fire: true                 # firing drops the stance

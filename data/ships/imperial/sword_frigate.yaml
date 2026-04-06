@@ -1,0 +1,63 @@
+id: sword_frigate
+name: "Sword-class Frigate"
+classification: escort
+faction: imperial_navy
+hull_cost: 25
+leadership: 7
+commander_level_required: 1
+upkeep: 5
+description: >
+  The Sword-class is a fast, reliable escort vessel. Deployed in squadrons,
+  they screen the fleet and harry enemy flanks with their forward batteries.
+
+hull:
+  hits: 1
+  length: 1.5
+  armor_prow: 5
+  armor_port: 4
+  armor_starboard: 4
+  armor_stern: 4
+
+movement:
+  speed: 25
+  turn_rate: 45
+  turn_delay: 5
+  combustion_max: 100
+
+shields: 1
+turrets: 1
+
+subsystems: []
+
+weapon_slots:
+  - id: 1
+    name: "Forward Battery"
+    arc: prow
+    size: small
+    allowed_types: [battery]
+
+  - id: 2
+    name: "Secondary Mount"
+    arc: prow
+    size: small
+    allowed_types: [battery, lance]
+
+upgrade_slots: 1
+doctrine_slot: true
+
+default_loadout:
+  weapons:
+    1: macro_cannon_1
+    2: macro_cannon_1
+  upgrades: []
+  doctrine: null
+
+boarding:
+  assault_actions: 1
+
+morale:
+  base_max: 80
+
+squadron:
+  min_size: 2
+  max_size: 6

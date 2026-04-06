@@ -1,0 +1,64 @@
+id: cobra_destroyer
+name: "Cobra-class Destroyer"
+classification: escort
+faction: imperial_navy
+hull_cost: 20
+leadership: 7
+commander_level_required: 1
+upkeep: 5
+description: >
+  The Cobra-class is the most common torpedo-armed escort in the Imperial Navy.
+  Fast and expendable, Cobras deliver devastating torpedo salvos before
+  disengaging at full speed.
+
+hull:
+  hits: 1
+  length: 1.5
+  armor_prow: 5
+  armor_port: 4
+  armor_starboard: 4
+  armor_stern: 4
+
+movement:
+  speed: 30
+  turn_rate: 45
+  turn_delay: 5
+  combustion_max: 100
+
+shields: 1
+turrets: 1
+
+subsystems: []
+
+weapon_slots:
+  - id: 1
+    name: "Forward Battery"
+    arc: prow
+    size: small
+    allowed_types: [battery]
+
+  - id: 2
+    name: "Prow Torpedo Tubes"
+    arc: prow
+    size: torpedo
+    allowed_types: [torpedo]
+
+upgrade_slots: 1
+doctrine_slot: true
+
+default_loadout:
+  weapons:
+    1: macro_cannon_1
+    2: standard_torpedoes
+  upgrades: []
+  doctrine: null
+
+boarding:
+  assault_actions: 1
+
+morale:
+  base_max: 80
+
+squadron:
+  min_size: 2
+  max_size: 6

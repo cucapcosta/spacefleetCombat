@@ -1,0 +1,22 @@
+id: imperial_navy
+name: "Imperial Navy"
+description: >
+  The battlefleets of the Imperium form the largest single fighting force in
+  the galaxy. Imperial Navy vessels are characterised by heavy prow armor,
+  devastating torpedo salvos, and powerful broadside batteries. They favor
+  closing to engagement range and delivering crushing broadsides while
+  absorbing punishment with their superior armor and shields.
+
+traits:
+  prow_armor_bonus: 1       # Imperial ships get +1 prow armor (already factored into profiles)
+  torpedo_access: true       # Can equip torpedo-armed vessels
+  nova_cannon_access: true   # Has access to nova cannon technology
+
+fleet_rules:
+  min_escort_squadron: 2
+  max_escort_squadron: 6
+  battleship_ratio: 3        # 1 battleship per this many cruiser-class ships
+  flagship_leadership_bonus: 1
+
+color: blue                   # CLI display color for this faction
+symbol: "I"                   # Map symbol

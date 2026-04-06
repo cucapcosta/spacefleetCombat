@@ -1,0 +1,56 @@
+# Weapon type definitions
+# These define the base behavior for each weapon category.
+# Individual weapon instances on ships reference these types.
+
+weapon_types:
+  battery:
+    name: "Weapons Battery"
+    description: >
+      Macro-cannons and other ballistic weapons fired in massive broadsides.
+      Effectiveness depends on range and target facing (the gunnery table).
+      More effective against targets showing their broadside.
+    mechanic: gunnery_table
+    ignores_shields: false
+    ignores_armor: false
+    can_critical: true
+    notes: "Strength = number of firepower dice. Hits determined by gunnery table."
+
+  lance:
+    name: "Lance"
+    description: >
+      Focused energy beams that cut through armor regardless of thickness.
+      Each lance die hits on a 4+, and hits bypass armor saves entirely.
+      Less affected by range but fewer dice than batteries.
+    mechanic: flat_roll
+    hit_threshold: 4         # Roll this or higher on D6 to hit
+    ignores_shields: false
+    ignores_armor: true      # Lances bypass armor
+    can_critical: true
+    notes: "Roll 1D6 per strength. 4+ = hit. Ignores armor saves."
+
+  torpedo:
+    name: "Torpedo"
+    description: >
+      Self-guided munitions launched in salvos. Torpedoes travel independently
+      each turn and bypass shields entirely on impact. Turrets can intercept
+      them before they strike.
+    mechanic: ordnance
+    ignores_shields: true    # Torpedoes bypass shields
+    ignores_armor: false
+    can_critical: true
+    interceptable: true      # Can be shot down by turrets
+    notes: "Travel each ordnance phase. Bypass shields. 1 damage per hit."
+
+  nova_cannon:
+    name: "Nova Cannon"
+    description: >
+      A massive spinal-mount weapon that fires explosive shells at extreme range.
+      The shell detonates at a target point, dealing damage in an area of effect.
+      Highly inaccurate but devastating when it hits.
+    mechanic: scatter
+    scatter_dice: true       # Uses scatter mechanic (shot may deviate from target)
+    ignores_shields: true
+    ignores_armor: false
+    can_critical: true
+    blast_marker: true       # Creates blast markers on detonation
+    notes: "Fire at a point. Scatter 2D6 in random direction. All ships in blast radius take D6 hits."

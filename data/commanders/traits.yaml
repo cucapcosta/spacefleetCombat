@@ -1,0 +1,71 @@
+# Commander Traits
+# Earned through narrative events during the campaign.
+# Cannot be chosen freely — awarded based on actions and story.
+
+traits:
+  veteran_of_cadia:
+    name: "Veteran of Cadia"
+    description: "Survived the battles at the Eye of Terror."
+    how_earned: "Survive the Cadia story mission"
+    effects:
+      fleet_morale_bonus: +10
+
+  reckless:
+    name: "Reckless"
+    description: "Courage or madness — either way, the Admiral charges headlong into battle."
+    how_earned: "Win 3 battles with less than 25% fleet hull remaining"
+    effects:
+      fleet_speed_bonus: +5
+      fleet_morale_penalty: -10
+
+  cautious_strategist:
+    name: "Cautious Strategist"
+    description: "Careful planning has kept the fleet intact through many engagements."
+    how_earned: "Win 5 battles without losing a single ship"
+    effects:
+      brace_effectiveness: +0.30
+
+  torpedo_ace:
+    name: "Torpedo Ace"
+    description: "A master of torpedo warfare."
+    how_earned: "Destroy 10 ships with torpedoes across the campaign"
+    effects:
+      fleet_torpedo_strength: +1
+
+  the_butcher:
+    name: "The Butcher"
+    description: "Known for ruthless boarding assaults."
+    how_earned: "Destroy 3 ships via boarding in a single battle"
+    effects:
+      fleet_assault_bonus: +2
+      port_morale_penalty: -5
+
+  warp_touched:
+    name: "Warp-Touched"
+    description: "Exposure to raw warp energy has left its mark."
+    how_earned: "Survive a warp storm narrative event"
+    effects:
+      micro_warp_charges: +1
+      fleet_morale_penalty: -5
+
+  iron_will:
+    name: "Iron Will"
+    description: "An unshakeable commander whose presence inspires absolute loyalty."
+    how_earned: "Successfully rally 10 ships from mutiny across the campaign"
+    effects:
+      call_to_arms_morale_bonus: +15
+
+  savior_of_the_sector:
+    name: "Savior of the Sector"
+    description: "Liberated a sector from enemy control against overwhelming odds."
+    how_earned: "Complete a campaign with 10+ systems controlled"
+    effects:
+      fleet_capacity_bonus: +200
+
+  fleet_master:
+    name: "Fleet Master"
+    description: "A true master of void warfare who has seen it all."
+    how_earned: "Reach commander level 10"
+    effects:
+      ability_cooldown_reduction: 1
+      passive_skill_slots: +1

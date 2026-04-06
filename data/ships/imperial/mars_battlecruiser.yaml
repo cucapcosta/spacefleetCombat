@@ -1,0 +1,85 @@
+id: mars_battlecruiser
+name: "Mars-class Battlecruiser"
+classification: battlecruiser
+faction: imperial_navy
+hull_cost: 200
+leadership: 8
+commander_level_required: 7
+upkeep: 20
+description: >
+  The Mars-class Battlecruiser combines heavy broadside firepower with the
+  rare and devastating prow nova cannon. Often serves as a flagship for
+  smaller battlegroups due to its balanced capabilities.
+
+hull:
+  hits: 10
+  length: 6.5
+  armor_prow: 6
+  armor_port: 5
+  armor_starboard: 5
+  armor_stern: 4
+
+movement:
+  speed: 20
+  turn_rate: 45
+  turn_delay: 10
+  combustion_max: 100
+
+shields: 3
+turrets: 3
+
+subsystems:
+  - generator
+  - deck
+  - engines
+  - weapons
+
+weapon_slots:
+  - id: 1
+    name: "Port Broadside"
+    arc: port
+    size: medium
+    allowed_types: [battery]
+
+  - id: 2
+    name: "Starboard Broadside"
+    arc: starboard
+    size: medium
+    allowed_types: [battery]
+
+  - id: 3
+    name: "Port Dorsal"
+    arc: port
+    size: medium
+    allowed_types: [battery, lance]
+
+  - id: 4
+    name: "Starboard Dorsal"
+    arc: starboard
+    size: medium
+    allowed_types: [battery, lance]
+
+  - id: 5
+    name: "Prow Nova Cannon"
+    arc: prow
+    size: special
+    allowed_types: [nova_cannon]
+
+upgrade_slots: 3
+doctrine_slot: true
+
+default_loadout:
+  weapons:
+    1: macro_cannon_3
+    2: macro_cannon_3
+    3: lance_2
+    4: lance_2
+    5: nova_cannon
+  upgrades: []
+  doctrine: null
+
+boarding:
+  assault_actions: 3
+
+morale:
+  base_max: 110

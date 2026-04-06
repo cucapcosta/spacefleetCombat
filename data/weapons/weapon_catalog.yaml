@@ -1,0 +1,167 @@
+# Weapon Catalog
+# Individual weapons that can be equipped into ship weapon slots.
+# Each weapon references a weapon_type for its resolution mechanic.
+
+weapons:
+  # === BATTERIES (Macro-Cannons) ===
+
+  macro_cannon_1:
+    name: "Macro-Cannon Mk.I"
+    type: battery
+    size: small
+    strength: 2
+    range: 30
+    cost: 10
+    description: "Basic light macro-cannons. Cheap and reliable."
+
+  macro_cannon_2:
+    name: "Macro-Cannon Mk.II"
+    type: battery
+    size: medium
+    strength: 4
+    range: 45
+    cost: 25
+    description: "Standard-issue broadside macro-cannons."
+
+  macro_cannon_3:
+    name: "Macro-Cannon Mk.III"
+    type: battery
+    size: medium
+    strength: 6
+    range: 45
+    cost: 40
+    description: "Heavy broadside batteries. The backbone of Imperial gunnery."
+
+  macro_cannon_4:
+    name: "Macro-Cannon Mk.IV"
+    type: battery
+    size: large
+    strength: 8
+    range: 60
+    cost: 60
+    description: "Capital-grade batteries found on battleships and battlecruisers."
+
+  mars_pattern_battery:
+    name: "Mars-Pattern Battery"
+    type: battery
+    size: large
+    strength: 10
+    range: 60
+    cost: 80
+    requires_forge_world: true
+    description: "Rare, devastating broadside arrays manufactured only at major Forge Worlds."
+
+  ryza_pattern_battery:
+    name: "Ryza-Pattern Battery"
+    type: battery
+    size: medium
+    strength: 5
+    range: 60
+    cost: 45
+    requires_forge_world: true
+    description: "Long-range variant batteries. Less firepower but greater reach."
+
+  # === LANCES ===
+
+  lance_1:
+    name: "Lance Mk.I"
+    type: lance
+    size: small
+    strength: 1
+    range: 45
+    cost: 15
+    description: "Light lance emitter. Precise but low volume of fire."
+
+  lance_2:
+    name: "Lance Mk.II"
+    type: lance
+    size: medium
+    strength: 2
+    range: 60
+    cost: 35
+    description: "Standard lance battery. Cuts through armor with ease."
+
+  lance_3:
+    name: "Lance Mk.III"
+    type: lance
+    size: large
+    strength: 4
+    range: 60
+    cost: 65
+    description: "Heavy lance array. Devastating against armored targets."
+
+  disruption_lance:
+    name: "Disruption Lance"
+    type: lance
+    size: medium
+    strength: 2
+    range: 45
+    cost: 45
+    special:
+      critical_chance_bonus: 0.25
+    requires_forge_world: true
+    description: "Modified lances that destabilize ship systems. +25% critical hit chance."
+
+  # === TORPEDOES ===
+
+  standard_torpedoes:
+    name: "Standard Torpedoes"
+    type: torpedo
+    size: torpedo
+    strength: 4
+    speed: 30
+    range: 30
+    cost: 20
+    description: "Reliable anti-ship torpedoes. Bypass shields."
+
+  guided_torpedoes:
+    name: "Guided Torpedoes"
+    type: torpedo
+    size: torpedo
+    strength: 4
+    speed: 25
+    range: 40
+    cost: 35
+    description: "Extended-range torpedoes with improved guidance. Slower but longer reach."
+
+  melta_torpedoes:
+    name: "Melta Torpedoes"
+    type: torpedo
+    size: torpedo
+    strength: 3
+    speed: 30
+    range: 30
+    cost: 30
+    special:
+      damage_per_hit: 2
+      ignores_armor: true
+    requires_forge_world: true
+    description: "Superheated warheads that melt through armor. +1 damage per hit, ignores armor."
+
+  boarding_torpedoes:
+    name: "Boarding Torpedoes"
+    type: torpedo
+    size: torpedo
+    strength: 4
+    speed: 25
+    range: 30
+    cost: 40
+    special:
+      boarding: true
+      assault_actions: 2
+    description: "Deliver assault teams directly into the enemy hull. Assault instead of damage."
+
+  # === SPECIAL WEAPONS ===
+
+  nova_cannon:
+    name: "Nova Cannon"
+    type: nova_cannon
+    size: special
+    strength: 1
+    range: 100
+    blast_radius: 8
+    cost: 100
+    requires_forge_world: true
+    description: >
+      Massive spinal-mount weapon. Fires shells at extreme range that detonate
+      in an area of effect. Highly inaccurate but devastating when on target.
