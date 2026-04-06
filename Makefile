@@ -1,4 +1,4 @@
-.PHONY: help install play server client test lint typecheck check build clean
+.PHONY: help install play server ws-server ws-client client test lint typecheck check build build-client clean
 
 .DEFAULT_GOAL := help
 
@@ -26,7 +26,12 @@ ws-server:  ## Start WebSocket server (PORT=8080 GAME_MODE=pve EXPECTED_PLAYERS=
 	SHIPS_PER_PLAYER=$(or $(SHIPS_PER_PLAYER),3) \
 	uv run spacefleet-ws-server
 
-client:  ## Connect to server (HOST=localhost PORT=9876 USER=player1)
+ws-client:  ## Connect via WebSocket (URL=wss://game.forjadeguerra.com.br/ws USER=player1)
+	uv run spacefleet-ws-client \
+		$(or $(URL),wss://game.forjadeguerra.com.br/ws) \
+		--user $(or $(USER),player1)
+
+client:  ## Connect to TCP server (HOST=localhost PORT=9876 USER=player1)
 	uv run spacefleet-client \
 		$(or $(HOST),localhost) \
 		--port $(or $(PORT),9876) \
@@ -50,6 +55,14 @@ check: lint typecheck test  ## Run all quality checks
 
 build:  ## Build wheel and sdist
 	uv build
+
+build-client:  ## Build standalone executable (dist/spacefleet-client)
+	uv run pyinstaller \
+		--onefile \
+		--name spacefleet-client \
+		--strip \
+		--clean \
+		src/spacefleet/net/ws_client.py
 
 clean:  ## Remove build artifacts and caches
 	rm -rf dist/ build/ *.egg-info

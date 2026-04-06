@@ -17,6 +17,9 @@ venv/
 htmlcov/
 .coverage
 
+# PyInstaller
+*.spec
+
 # IDE
 .vscode/
 .idea/

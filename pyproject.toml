@@ -34,6 +34,7 @@ dev = [
     "ruff",
     "mypy",
     "types-PyYAML",
+    "pyinstaller>=6.0",
 ]
 
 [project.scripts]
@@ -41,6 +42,7 @@ spacefleet = "spacefleet.__main__:main"
 spacefleet-server = "spacefleet.net.server:main"
 spacefleet-client = "spacefleet.net.client:main"
 spacefleet-ws-server = "spacefleet.net.ws_server:main"
+spacefleet-ws-client = "spacefleet.net.ws_client:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/spacefleet"]

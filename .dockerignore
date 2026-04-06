@@ -9,3 +9,4 @@ tests/
 dist/
 build/
 *.egg-info
+*.spec
