@@ -56,10 +56,10 @@ check: lint typecheck test  ## Run all quality checks
 build:  ## Build wheel and sdist
 	uv build
 
-build-client:  ## Build standalone executable (dist/spacefleet-client)
+build-client:  ## Build standalone executable (dist/spacefleet-client-linux-amd64)
 	uv run pyinstaller \
 		--onefile \
-		--name spacefleet-client \
+		--name spacefleet-client-linux-amd64 \
 		--strip \
 		--clean \
 		src/spacefleet/net/ws_client.py

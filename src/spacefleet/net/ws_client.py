@@ -13,9 +13,11 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import ssl
 from typing import Any
 
 import aiohttp
+import certifi
 
 # Protocol constants (duplicated to keep the client self-contained for PyInstaller)
 MSG_AUTH = "auth"
@@ -44,7 +46,12 @@ class SpacefleetWSClient:
 
     async def run(self) -> None:
         try:
-            async with aiohttp.ClientSession() as session, session.ws_connect(self.url) as ws:
+            ssl_ctx = ssl.create_default_context(cafile=certifi.where())
+            connector = aiohttp.TCPConnector(ssl=ssl_ctx)
+            async with (
+                aiohttp.ClientSession(connector=connector) as session,
+                session.ws_connect(self.url) as ws,
+            ):
                 # Authenticate
                 await ws.send_str(json.dumps({"type": MSG_AUTH, "username": self.username}))
 
