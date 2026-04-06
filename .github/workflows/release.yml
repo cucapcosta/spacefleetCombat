@@ -33,7 +33,8 @@ jobs:
       - name: Install dependencies
         run: uv sync --extra dev
 
-      - name: Build executable
+      - name: Build executable (Unix)
+        if: runner.os != 'Windows'
         env:
           ARTIFACT_NAME: ${{ matrix.artifact }}
         run: >
@@ -41,6 +42,17 @@ jobs:
           --onefile
           --name "$ARTIFACT_NAME"
           --strip
+          --clean
+          src/spacefleet/net/ws_client.py
+
+      - name: Build executable (Windows)
+        if: runner.os == 'Windows'
+        env:
+          ARTIFACT_NAME: ${{ matrix.artifact }}
+        run: >
+          uv run pyinstaller
+          --onefile
+          --name $env:ARTIFACT_NAME
           --clean
           src/spacefleet/net/ws_client.py
 
