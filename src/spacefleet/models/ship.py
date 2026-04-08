@@ -8,6 +8,8 @@ from typing import TYPE_CHECKING
 from spacefleet.core.types import (
     Arc,
     Faction,
+    MoraleState,
+    Stance,
     Vector2D,
     heading_to_vector,
     normalize_angle,
@@ -46,8 +48,23 @@ class Ship:
 
     # ── status ──
     morale: int = 100
+    morale_max: int = 100
     is_destroyed: bool = False
     fires: int = 0  # active fires (1 hull damage per fire per end-phase)
+
+    # ── stance ──
+    stance: Stance = Stance.STANDARD
+    stance_cooldown_remaining: int = 0  # turns until next switch allowed
+
+    # ── combustion gauge ──
+    combustion: int = 100
+    combustion_max: int = 100
+
+    # ── subsystem stubs (True = operational) ──
+    subsystem_generator: bool = True
+    subsystem_deck: bool = True
+    subsystem_engines: bool = True
+    subsystem_weapons: bool = True
 
     # ── pending manoeuvre ──
     pending_turn: float = 0.0  # degrees remaining; positive = starboard, negative = port
@@ -117,6 +134,64 @@ class Ship:
         if abs_rb <= 135:
             return Arc.STARBOARD if relative_bearing > 0 else Arc.PORT
         return Arc.AFT
+
+    # ================================================================
+    # Stance
+    # ================================================================
+
+    def switch_stance(self, new_stance: Stance) -> bool:
+        """Switch to *new_stance* if allowed.  Returns True on success."""
+        if new_stance == self.stance:
+            return True  # no-op always allowed
+        if self.stance_cooldown_remaining > 0:
+            return False
+        if not self.subsystem_deck:
+            return False  # deck critical blocks switching
+        if self.morale <= 0:
+            return False  # mutiny blocks switching
+        from spacefleet.data.stance_registry import StanceRegistry
+
+        self.stance = new_stance
+        data = StanceRegistry.get_for(new_stance)
+        self.stance_cooldown_remaining = data.switch_cooldown
+        return True
+
+    def tick_stance_cooldown(self) -> None:
+        """Decrement stance cooldown by 1 (call once per end-of-turn)."""
+        if self.stance_cooldown_remaining > 0:
+            self.stance_cooldown_remaining -= 1
+
+    # ================================================================
+    # Morale
+    # ================================================================
+
+    def morale_state(self) -> MoraleState:
+        """Current morale threshold bracket."""
+        if self.morale >= 75:
+            return MoraleState.FULL
+        if self.morale >= 50:
+            return MoraleState.SHAKEN
+        if self.morale >= 25:
+            return MoraleState.WAVERING
+        if self.morale >= 1:
+            return MoraleState.BREAKING
+        return MoraleState.MUTINY
+
+    def apply_morale_change(self, delta: int) -> int:
+        """Adjust morale clamped to [0, morale_max].  Returns actual change."""
+        before = self.morale
+        self.morale = max(0, min(self.morale_max, self.morale + delta))
+        return self.morale - before
+
+    # ================================================================
+    # Combustion
+    # ================================================================
+
+    def regenerate_combustion(self, amount: int = 15) -> int:
+        """Regen combustion gauge.  Returns actual gain."""
+        before = self.combustion
+        self.combustion = min(self.combustion_max, self.combustion + amount)
+        return self.combustion - before
 
     # ================================================================
     # Damage
@@ -256,6 +331,7 @@ class Ship:
             shields_current=hull.shields,
             weapons=list(weapons),
             morale=hull.base_morale,
+            morale_max=hull.base_morale,
         )
 
     def __repr__(self) -> str:

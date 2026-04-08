@@ -32,12 +32,14 @@ from spacefleet.net.turn_resolver import (
     DriftEvent,
     EndOfTurnEvent,
     LanceFireEvent,
+    MoraleChangeEvent,
     RespawnEvent,
     SalvoExpiredEvent,
     SalvoImpactEvent,
     SalvoLaunchEvent,
     SalvoMoveEvent,
     SpeedChangeEvent,
+    StanceChangeEvent,
     TurnEvent,
     TurnLog,
     TurnOrderEvent,
@@ -97,10 +99,13 @@ class ServerRenderer:
             direction = "stbd" if ship.pending_turn > 0 else "port"
             turn_str = f"  Turn: {abs(ship.pending_turn):.0f}\u00b0 {direction}"
 
+        stance_short = ship.stance.value.replace("_", " ").title()
         lines.append(
             f"\n  {bold(ship.name)}:"
             f" Hull {health_bar(ship.hull_current, ship.hull_max)}"
             f"  Shields {ship.shields_current}/{ship.shields_max}"
+            f"  [{colored(stance_short, C.BRIGHT_YELLOW)}]"
+            f"  Morale {ship.morale}"
             f"  Pos {ship.position}  Hdg {ship.heading:.0f}\u00b0"
             f"  Spd {ship.speed:.0f}{turn_str}"
         )
@@ -404,6 +409,30 @@ class ServerRenderer:
             return (
                 f"  {colored('\u2605 NEW CONTACT', C.BRIGHT_YELLOW)}: {event.ship.name} detected!"
             )
+
+        if isinstance(event, StanceChangeEvent):
+            if event.ship.id in player_ship_ids:
+                old = event.old_stance.value.replace("_", " ").title()
+                new = event.new_stance.value.replace("_", " ").title()
+                reason = f" ({event.reason})" if event.reason else ""
+                return (
+                    f"  {colored(event.ship.name, C.BRIGHT_CYAN)}:"
+                    f" Stance {old} → {colored(new, C.BRIGHT_YELLOW)}{reason}"
+                )
+            return None
+
+        if isinstance(event, MoraleChangeEvent):
+            if event.ship.id in player_ship_ids:
+                delta = event.new_morale - event.old_morale
+                sign = "+" if delta > 0 else ""
+                color = C.GREEN if delta > 0 else C.RED
+                return (
+                    f"  {event.ship.name}: Morale"
+                    f" {colored(f'{sign}{delta}', color)}"
+                    f" ({event.new_morale}/{event.ship.morale_max})"
+                    f" [{event.source}]"
+                )
+            return None
 
         return None
 

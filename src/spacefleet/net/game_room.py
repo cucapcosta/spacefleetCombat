@@ -269,12 +269,17 @@ class GameRoom:
             if msg_type == MSG_QUERY:
                 # Free action — respond and re-prompt
                 query = msg.get("query", "")
-                text = self.renderer.render_query(
-                    player_id,
-                    ship,
-                    query,
-                    self.state,
-                )
+
+                # Stance switching is a free action that mutates state
+                if query.startswith("stance"):
+                    text = self._handle_stance_query(ship, query)
+                else:
+                    text = self.renderer.render_query(
+                        player_id,
+                        ship,
+                        query,
+                        self.state,
+                    )
                 await _safe_write(conn, {"type": MSG_QUERY_RESULT, "text": text})
                 # Re-send prompt
                 alive_ships = self.state.alive_ships_for(player_id)
@@ -355,6 +360,57 @@ class GameRoom:
                     "message": f"Expected command or query, got '{msg_type}'",
                 },
             )
+
+    def _handle_stance_query(self, ship: Ship, query: str) -> str:
+        """Process a stance query — show info or switch stance.
+
+        This is a free action that may mutate ship state.
+        """
+        from spacefleet.core.types import Stance
+        from spacefleet.data.stance_registry import StanceRegistry
+
+        parts = query.split(None, 1)
+        if len(parts) == 1:
+            # "stance" with no arg → show current stance info
+            data = StanceRegistry.get_for(ship.stance)
+            name = data.name
+            cd = ship.stance_cooldown_remaining
+            cd_str = f" (locked for {cd} more turn(s))" if cd > 0 else " (can switch)"
+            valid = ", ".join(s.value for s in Stance)
+            return (
+                f"  Current stance: \033[93m{name}\033[0m{cd_str}\n"
+                f"  {data.description}\n"
+                f"  Available: {valid}"
+            )
+
+        stance_name = parts[1].strip().lower()
+
+        # Validate
+        try:
+            new_stance = Stance(stance_name)
+        except ValueError:
+            valid = ", ".join(s.value for s in Stance)
+            return f"  Unknown stance: '{stance_name}'. Valid: {valid}"
+
+        if ship.stance_cooldown_remaining > 0:
+            return (
+                f"  Cannot switch stance for"
+                f" {ship.stance_cooldown_remaining} more turn(s)."
+            )
+        if not ship.subsystem_deck:
+            return "  Deck subsystem damaged — cannot switch stances."
+        if ship.morale <= 0:
+            return "  Crew has mutinied — cannot switch stances."
+        if new_stance == ship.stance:
+            return f"  Already in {StanceRegistry.get_for(new_stance).name} stance."
+
+        old_name = StanceRegistry.get_for(ship.stance).name
+        ship.switch_stance(new_stance)
+        new_data = StanceRegistry.get_for(new_stance)
+        return (
+            f"  Stance changed: {old_name} → \033[93m{new_data.name}\033[0m"
+            f" (locked for {new_data.switch_cooldown} turns)"
+        )
 
     def handle_disconnect(self, username: str) -> None:
         """Handle a player disconnecting mid-game."""

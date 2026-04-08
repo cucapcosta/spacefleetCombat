@@ -94,6 +94,46 @@ def format_ship_status(ship: Ship) -> str:
         f"  Stern {ship.hull.armor_stern}"
     )
 
+    # Stance
+    lines.append("")
+    stance_name = ship.stance.value.replace("_", " ").title()
+    cd = ship.stance_cooldown_remaining
+    cd_str = f" (locked {cd} turns)" if cd > 0 else " (can switch)"
+    lines.append(f"  Stance   : {colored(stance_name, C.BRIGHT_YELLOW)}{cd_str}")
+
+    # Morale
+    from spacefleet.core.types import MoraleState
+
+    _morale_colors = {
+        MoraleState.FULL: C.GREEN,
+        MoraleState.SHAKEN: C.YELLOW,
+        MoraleState.WAVERING: C.BRIGHT_RED,
+        MoraleState.BREAKING: C.RED,
+        MoraleState.MUTINY: C.RED,
+    }
+    m_color = _morale_colors[ship.morale_state()]
+    lines.append(
+        f"  Morale   : {colored(f'{ship.morale}/{ship.morale_max}', m_color)}"
+        f" ({ship.morale_state().value})"
+    )
+
+    # Combustion
+    lines.append(f"  Combustn : {health_bar(ship.combustion, ship.combustion_max)}")
+
+    # Subsystems (capital ships only)
+    from spacefleet.core.types import ShipClass
+
+    if ship.hull.classification not in (ShipClass.ESCORT,):
+        parts: list[str] = []
+        for label, ok in [
+            ("Gen", ship.subsystem_generator),
+            ("Deck", ship.subsystem_deck),
+            ("Eng", ship.subsystem_engines),
+            ("Wpn", ship.subsystem_weapons),
+        ]:
+            parts.append(colored(label, C.GREEN if ok else C.RED))
+        lines.append(f"  Subsys   : {' | '.join(parts)}")
+
     # Weapons
     if ship.weapons:
         lines.append("")
@@ -346,6 +386,8 @@ def format_available_actions(actions_remaining: int) -> str:
         f"  {colored('status', C.GREEN)}                     — Detailed ship status",
         f"  {colored('scan', C.GREEN)}                       — View sensor contacts",
         f"  {colored('weapons', C.GREEN)}                    — List weapons with arc info",
+        f"  {colored('stance', C.GREEN)} [name]"
+        "              — View or switch stance",
         f"  {colored('help', C.GREEN)}                       — Show this list",
     ]
     return "\n".join(lines)

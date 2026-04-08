@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from spacefleet.core.types import Stance
 from spacefleet.net.commands import Command
 from spacefleet.spatial.geometry import bearing_from_to, distance, is_in_arc
 
@@ -43,19 +44,25 @@ class AIController:
         if not ship.weapons:
             return Command(ship_id=ship_id, action="pass")
 
-        # Roll for fire chance
-        if not state.dice.chance(self.fire_chance):
-            return Command(ship_id=ship_id, action="pass")
-
         # Find nearest enemy
         enemies = state.enemy_ships_of(ship)
         if not enemies:
             return Command(ship_id=ship_id, action="pass")
 
-        nearest = min(
-            enemies,
-            key=lambda e: distance(ship.position, e.position),
-        )
+        # Switch to Lock On when enemies are in weapon range
+        nearest = min(enemies, key=lambda e: distance(ship.position, e.position))
+        max_range = max(w.weapon.range for w in ship.weapons)
+        nearest_dist = distance(ship.position, nearest.position)
+        if (
+            nearest_dist <= max_range
+            and ship.stance != Stance.LOCK_ON
+            and ship.stance_cooldown_remaining == 0
+        ):
+            ship.switch_stance(Stance.LOCK_ON)
+
+        # Roll for fire chance
+        if not state.dice.chance(self.fire_chance):
+            return Command(ship_id=ship_id, action="pass")
 
         bearing = bearing_from_to(ship.position, nearest.position)
         weapon = ship.weapons[0]
@@ -65,8 +72,7 @@ class AIController:
             return Command(ship_id=ship_id, action="pass")
 
         # Check range
-        dist = distance(ship.position, nearest.position)
-        if dist > weapon.weapon.range:
+        if nearest_dist > weapon.weapon.range:
             return Command(ship_id=ship_id, action="pass")
 
         return Command(

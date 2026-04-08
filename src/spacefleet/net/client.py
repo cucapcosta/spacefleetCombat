@@ -172,8 +172,13 @@ class SpacefleetClient:
             args = parts[1:]
 
             # ── Free actions → query ──
-            if cmd in ("status", "scan", "weapons", "help", "?"):
-                query = "help" if cmd == "?" else cmd
+            if cmd in ("status", "scan", "weapons", "help", "?", "stance"):
+                if cmd == "?":
+                    query = "help"
+                elif cmd == "stance":
+                    query = f"stance {' '.join(args)}".strip()
+                else:
+                    query = cmd
                 await write_message(
                     writer,
                     {

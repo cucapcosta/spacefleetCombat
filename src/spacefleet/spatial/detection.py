@@ -39,7 +39,13 @@ def compute_detection_level(
     is returned instead.
     """
     dist = distance(observer.position, target.position)
-    sr = observer.hull.sensor_range
+
+    # Stance modifiers on detection range
+    from spacefleet.data.stance_registry import StanceRegistry
+
+    observer_mod = StanceRegistry.get_for(observer.stance).own_sensor_range_modifier
+    target_mod = StanceRegistry.get_for(target.stance).detection_signature_modifier
+    sr = observer.hull.sensor_range * observer_mod * target_mod
 
     if dist <= sr * 0.75:
         level = DetectionLevel.IDENTIFIED

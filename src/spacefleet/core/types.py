@@ -58,6 +58,26 @@ class ActionType(Enum):
     PASS = "pass"
 
 
+class Stance(Enum):
+    """Tactical stance a ship can adopt.  Affects combat modifiers."""
+
+    STANDARD = "standard"
+    LOCK_ON = "lock_on"
+    BRACE_FOR_IMPACT = "brace_for_impact"
+    RELOAD = "reload"
+    RUNNING_SILENT = "running_silent"
+
+
+class MoraleState(Enum):
+    """Morale threshold bracket — determines combat penalties."""
+
+    FULL = "full"  # 75-100
+    SHAKEN = "shaken"  # 50-74
+    WAVERING = "wavering"  # 25-49
+    BREAKING = "breaking"  # 1-24
+    MUTINY = "mutiny"  # 0
+
+
 # ---------------------------------------------------------------------------
 # Vector2D
 # ---------------------------------------------------------------------------
