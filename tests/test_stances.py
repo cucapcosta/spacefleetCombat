@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from spacefleet.combat.resolution import (
     resolve_battery_attack,
     resolve_lance_attack,
@@ -23,7 +21,6 @@ from spacefleet.dice import DiceRoller
 from spacefleet.models.ship import Ship
 from spacefleet.models.ship_profile import HullProfile, WeaponSlotDef
 from spacefleet.models.weapon import WeaponMount, WeaponProfile
-
 
 # ── Fixtures ──────────────────────────────────────────────────
 
