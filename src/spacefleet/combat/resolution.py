@@ -21,6 +21,7 @@ from spacefleet.combat.gunnery import (
 from spacefleet.combat.gunnery import (
     target_aspect as _get_target_aspect,
 )
+from spacefleet.combat.lance import lance_hit_count
 from spacefleet.core.types import MoraleState, WeaponType
 from spacefleet.data.stance_registry import StanceRegistry
 from spacefleet.dice import DiceRoller
@@ -350,7 +351,7 @@ def resolve_lance_attack(
         rolls = [r if r >= 4 else dr.d6() for r in rolls]
 
     result.lance_rolls = rolls
-    raw_hits = sum(1 for r in rolls if r >= 4)
+    raw_hits = lance_hit_count(rolls)
 
     # Morale accuracy penalty
     raw_hits = max(0, int(raw_hits * _morale_accuracy_factor(attacker)))
