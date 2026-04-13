@@ -12,6 +12,15 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+from spacefleet.combat.gunnery import (
+    GUNNERY_COLUMNS,
+    GUNNERY_TABLE,
+    column_index,
+    lookup_hits,
+)
+from spacefleet.combat.gunnery import (
+    target_aspect as _get_target_aspect,
+)
 from spacefleet.core.types import MoraleState, WeaponType
 from spacefleet.data.stance_registry import StanceRegistry
 from spacefleet.dice import DiceRoller
@@ -27,30 +36,7 @@ if TYPE_CHECKING:
     from spacefleet.models.ship import Ship
     from spacefleet.models.weapon import WeaponMount
 
-# ─────────────────────────────────────────────────────────────────
-# Gunnery table (hardcoded for demo; will load from YAML later)
-# ─────────────────────────────────────────────────────────────────
-
-GUNNERY_COLUMNS = ["far_closing", "closing", "abeam", "running", "far_running"]
-
-GUNNERY_TABLE: dict[int, list[int]] = {
-    1: [0, 0, 1, 1, 1],
-    2: [0, 1, 1, 1, 2],
-    3: [0, 1, 1, 2, 2],
-    4: [1, 1, 2, 2, 3],
-    5: [1, 1, 2, 3, 3],
-    6: [1, 2, 2, 3, 4],
-    7: [1, 2, 3, 3, 4],
-    8: [1, 2, 3, 4, 5],
-    9: [2, 2, 3, 4, 5],
-    10: [2, 3, 4, 4, 6],
-    11: [2, 3, 4, 5, 6],
-    12: [2, 3, 4, 5, 7],
-    13: [3, 3, 5, 6, 7],
-    14: [3, 4, 5, 6, 8],
-    15: [3, 4, 5, 7, 8],
-    16: [3, 4, 6, 7, 9],
-}
+__all__ = ["GUNNERY_COLUMNS", "GUNNERY_TABLE"]
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -112,30 +98,6 @@ class AttackResult:
 # ─────────────────────────────────────────────────────────────────
 # Helpers
 # ─────────────────────────────────────────────────────────────────
-
-
-def _clamp(value: int, lo: int, hi: int) -> int:
-    return max(lo, min(hi, value))
-
-
-def _get_target_aspect(attacker: Ship, target: Ship) -> tuple[str, int]:
-    """Determine target aspect and gunnery column shift.
-
-    We look at the bearing from the *target* to the *attacker*: that tells
-    us which face the target is presenting.
-
-    Returns ``(aspect_name, column_shift)`` where shift is
-    ``-1`` closing, ``0`` abeam, ``+1`` running.
-    """
-    bearing_to_attacker = bearing_from_to(target.position, attacker.position)
-    rel = relative_bearing(target.heading, bearing_to_attacker)
-
-    abs_rel = abs(rel)
-    if abs_rel <= 45:
-        return "closing", -1  # target showing prow → harder
-    if abs_rel <= 135:
-        return "abeam", 0  # target showing broadside
-    return "running", 1  # target showing stern → easier
 
 
 def _morale_accuracy_factor(ship: Ship) -> float:
@@ -222,14 +184,14 @@ def resolve_battery_attack(
     aspect_name, aspect_shift = _get_target_aspect(attacker, target)
     result.target_aspect = aspect_name
 
-    col_idx = _clamp(
-        2 + aspect_shift + attacker_stance.gunnery_column_shift, 0, 4,
+    col_idx = column_index(
+        aspect_shift=aspect_shift,
+        stance_shift=attacker_stance.gunnery_column_shift,
     )
     result.gunnery_column = GUNNERY_COLUMNS[col_idx]
 
     # ── Step 5: look up hits, apply morale penalty ──
-    table_fp = _clamp(fp, 1, max(GUNNERY_TABLE.keys()))
-    raw_hits = GUNNERY_TABLE[table_fp][col_idx]
+    raw_hits = lookup_hits(strength=fp, column=col_idx)
     raw_hits = max(0, int(raw_hits * _morale_accuracy_factor(attacker)))
     result.raw_hits = raw_hits
 
