@@ -148,7 +148,21 @@ def resolve_projectile_impact(
 
     if total_hull_damage > 0:
         target.take_hull_damage(total_hull_damage)
+        target.apply_morale_change(-3 * total_hull_damage)
         result.target_destroyed = not target.alive
+
+    # Critical hits per penetrating hit (no Lock On bonus for projectiles)
+    if result.penetrating_hits > 0 and target.alive:
+        from spacefleet.combat.critical_hits import apply_critical_hit, roll_critical_hit
+
+        for _ in range(result.penetrating_hits):
+            if not target.alive:
+                break
+            crit = roll_critical_hit(target, dice_roller=dr)
+            apply_critical_hit(target, crit)
+            result.critical_hits.append(crit)
+            if not target.alive:
+                result.target_destroyed = True
 
     # Summary
     parts = [f"{raw_hits} hits"]
@@ -158,6 +172,8 @@ def resolve_projectile_impact(
         parts.append(f"{result.armor_saves} deflected by armor")
     if total_hull_damage:
         parts.append(f"{total_hull_damage} hull damage")
+    if result.critical_hits:
+        parts.append(f"{len(result.critical_hits)} critical(s)")
     if result.target_destroyed:
         parts.append("TARGET DESTROYED")
     result.message = " \u2192 ".join(parts)

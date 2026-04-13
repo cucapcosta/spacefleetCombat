@@ -66,6 +66,13 @@ class Ship:
     subsystem_engines: bool = True
     subsystem_weapons: bool = True
 
+    # ── critical hit state ──
+    crit_speed_modifier: float = 1.0  # 0.5 if engines damaged
+    crit_thrusters_damaged: bool = False  # prevents turning
+    crit_shields_suppressed_turns: int = 0  # turns until shields can regen
+    crit_leadership_penalty: int = 0  # cumulative from bridge hits
+    crit_temporary_repairs: list = field(default_factory=list)  # type: ignore[type-arg]
+
     # ── pending manoeuvre ──
     pending_turn: float = 0.0  # degrees remaining; positive = starboard, negative = port
 
@@ -96,6 +103,21 @@ class Ship:
     @property
     def turrets(self) -> int:
         return self.hull.turrets
+
+    @property
+    def effective_speed_max(self) -> float:
+        """Speed max accounting for engine crits."""
+        return self.hull.speed * self.crit_speed_modifier
+
+    @property
+    def effective_turn_rate(self) -> float:
+        """Turn rate — 0 if thrusters damaged."""
+        return 0.0 if self.crit_thrusters_damaged else self.hull.turn_rate
+
+    @property
+    def effective_leadership(self) -> int:
+        """Leadership accounting for bridge crits."""
+        return max(1, self.hull.leadership - self.crit_leadership_penalty)
 
     # ================================================================
     # Armor helpers
@@ -230,7 +252,7 @@ class Ship:
 
         if self.pending_turn != 0.0 and self.speed <= 0:
             # ── pivot in place (no position change) ──
-            max_pivot = self.turn_rate * fraction * self.PIVOT_RATE_MULTIPLIER
+            max_pivot = self.effective_turn_rate * fraction * self.PIVOT_RATE_MULTIPLIER
             sign = 1.0 if self.pending_turn > 0 else -1.0
             actual = sign * min(abs(self.pending_turn), max_pivot)
             self.heading = normalize_angle(self.heading + actual)
@@ -246,7 +268,7 @@ class Ship:
 
         if self.pending_turn != 0.0:
             # ── curved drift ──
-            max_turn = self.turn_rate * fraction
+            max_turn = self.effective_turn_rate * fraction
             sign = 1.0 if self.pending_turn > 0 else -1.0
             actual_turn = sign * min(abs(self.pending_turn), max_turn)
 
@@ -281,15 +303,22 @@ class Ship:
         self.pending_turn = degrees
 
     def set_speed(self, target: float) -> None:
-        """Instantly change speed (clamped to [0, speed_max])."""
-        self.speed = max(0.0, min(self.speed_max, target))
+        """Instantly change speed (clamped to [0, effective_speed_max])."""
+        self.speed = max(0.0, min(self.effective_speed_max, target))
 
     # ================================================================
     # End-of-turn
     # ================================================================
 
     def regenerate_shields(self, amount: int = 1) -> int:
-        """Regenerate shields.  Returns shields actually gained."""
+        """Regenerate shields.  Returns shields actually gained.
+
+        Blocked when shields are suppressed (crit) or generator is damaged.
+        """
+        if self.crit_shields_suppressed_turns > 0:
+            return 0
+        if not self.subsystem_generator:
+            return 0
         before = self.shields_current
         self.shields_current = min(self.shields_max, self.shields_current + amount)
         return self.shields_current - before
@@ -301,6 +330,54 @@ class Ship:
         dmg = self.fires
         self.take_hull_damage(dmg)
         return dmg
+
+    # ================================================================
+    # Critical hit ticking
+    # ================================================================
+
+    def tick_shields_suppressed(self) -> None:
+        """Decrement shields suppressed counter (call once per end-of-turn)."""
+        if self.crit_shields_suppressed_turns > 0:
+            self.crit_shields_suppressed_turns -= 1
+
+    def tick_temporary_repairs(self) -> None:
+        """Tick down temporary boarding crits and reverse effects on expiry."""
+        remaining: list = []
+        for effect_key, turns_left in self.crit_temporary_repairs:
+            new_turns = turns_left - 1
+            if new_turns <= 0:
+                self._reverse_temporary_crit(effect_key)
+            else:
+                remaining.append((effect_key, new_turns))
+        self.crit_temporary_repairs = remaining
+
+    def _reverse_temporary_crit(self, effect_key: str) -> None:
+        """Restore a subsystem when its temporary crit expires."""
+        if effect_key == "generator":
+            self.subsystem_generator = True
+        elif effect_key == "deck":
+            self.subsystem_deck = True
+        elif effect_key == "engines":
+            self.subsystem_engines = True
+            self.crit_speed_modifier = 1.0
+        elif effect_key == "weapons":
+            self.subsystem_weapons = True
+        elif effect_key == "thrusters":
+            self.crit_thrusters_damaged = False
+        elif effect_key == "bridge":
+            self.crit_leadership_penalty = max(
+                0, self.crit_leadership_penalty - 3,
+            )
+        elif effect_key.startswith("weapon_"):
+            slot_id = int(effect_key.split("_", 1)[1])
+            for w in self.weapons:
+                if w.slot_id == slot_id:
+                    w.can_fire = True
+                    break
+        elif effect_key == "prow_weapons":
+            for w in self.weapons:
+                if w.arc == Arc.PROW:
+                    w.can_fire = True
 
     # ================================================================
     # Factories

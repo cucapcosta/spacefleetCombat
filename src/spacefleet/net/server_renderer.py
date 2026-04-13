@@ -28,10 +28,13 @@ from spacefleet.cli.display import (
 )
 from spacefleet.core.types import DetectionLevel
 from spacefleet.net.turn_resolver import (
+    CriticalHitEvent,
     DestroyedEvent,
     DriftEvent,
     EndOfTurnEvent,
+    FireExtinguishedEvent,
     LanceFireEvent,
+    LightningStrikeEvent,
     MoraleChangeEvent,
     RespawnEvent,
     SalvoExpiredEvent,
@@ -431,6 +434,48 @@ class ServerRenderer:
                     f" {colored(f'{sign}{delta}', color)}"
                     f" ({event.new_morale}/{event.ship.morale_max})"
                     f" [{event.source}]"
+                )
+            return None
+
+        if isinstance(event, CriticalHitEvent):
+            crit = event.result
+            if event.ship.id in player_ship_ids:
+                extra = ""
+                if hasattr(crit, "extra_damage") and crit.extra_damage > 0:
+                    extra = f" (+{crit.extra_damage} hull damage)"
+                return (
+                    f"  {colored('CRITICAL HIT!', C.BRIGHT_RED)}"
+                    f" {event.ship.name}: {crit.name}{extra}"
+                )
+            if self._is_near_player(event.ship, player_ship_ids, state):
+                return (
+                    f"  {colored('Critical!', C.BRIGHT_GREEN)}"
+                    f" {event.ship.name}: {crit.name}"
+                )
+            return None
+
+        if isinstance(event, LightningStrikeEvent):
+            b_result = event.result
+            if event.attacker.id in player_ship_ids:
+                return (
+                    f"  {colored('LIGHTNING STRIKE!', C.BRIGHT_CYAN)}"
+                    f" {event.attacker.name} \u2192 {event.target.name}:"
+                    f" {b_result.message}"
+                )
+            if event.target.id in player_ship_ids:
+                return (
+                    f"  {colored('\u26a1 BOARDED!', C.BRIGHT_RED)}"
+                    f" {event.attacker.name} strikes {event.target.name}:"
+                    f" {b_result.message}"
+                )
+            return None
+
+        if isinstance(event, FireExtinguishedEvent):
+            if event.ship.id in player_ship_ids:
+                return (
+                    f"  {event.ship.name}:"
+                    f" Fire extinguished (D6={event.roll},"
+                    f" {event.fires_remaining} remaining)"
                 )
             return None
 

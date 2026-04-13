@@ -70,6 +70,8 @@ def validate_command(
         return _validate_turn(ship_id, args, ship)
     if action == "pass":
         return Command(ship_id=ship_id, action="pass", args={})
+    if action == "strike":
+        return _validate_strike(ship_id, args, ship)
 
     return f"Unknown action: '{action}'"
 
@@ -171,4 +173,33 @@ def _validate_turn(
         ship_id=ship_id,
         action="turn",
         args={"direction": direction_label, "degrees": degrees},
+    )
+
+
+def _validate_strike(
+    ship_id: str,
+    args: dict[str, Any],
+    ship: Ship,
+) -> Command | str:
+    """Validate a Lightning Strike (ranged boarding) command."""
+    target_id = args.get("target")
+    subsystem = args.get("subsystem")
+
+    if not target_id:
+        return "strike requires 'target' (ship ID)."
+
+    if ship.hull.assault_actions <= 0:
+        return f"{ship.name} has no boarding capability."
+
+    valid_subsystems = {"generator", "deck", "engines", "weapons"}
+    if subsystem and subsystem not in valid_subsystems:
+        return (
+            f"Invalid subsystem: '{subsystem}'."
+            f" Valid: {', '.join(sorted(valid_subsystems))}"
+        )
+
+    return Command(
+        ship_id=ship_id,
+        action="strike",
+        args={"target": str(target_id), "subsystem": subsystem},
     )

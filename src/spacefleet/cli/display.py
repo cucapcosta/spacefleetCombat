@@ -134,6 +134,23 @@ def format_ship_status(ship: Ship) -> str:
             parts.append(colored(label, C.GREEN if ok else C.RED))
         lines.append(f"  Subsys   : {' | '.join(parts)}")
 
+    # Critical damage indicators
+    crit_lines: list[str] = []
+    if ship.crit_thrusters_damaged:
+        crit_lines.append(colored("Thrusters Damaged", C.RED))
+    if ship.crit_speed_modifier < 1.0:
+        crit_lines.append(colored(f"Engines {ship.crit_speed_modifier:.0%}", C.RED))
+    if ship.crit_shields_suppressed_turns > 0:
+        crit_lines.append(
+            colored(f"Shields Suppressed ({ship.crit_shields_suppressed_turns}t)", C.RED),
+        )
+    if ship.crit_leadership_penalty > 0:
+        crit_lines.append(colored(f"Bridge Hit (-{ship.crit_leadership_penalty} Ld)", C.RED))
+    for effect_key, turns_left in ship.crit_temporary_repairs:
+        crit_lines.append(dim(f"{effect_key} damaged ({turns_left}t repair)"))
+    if crit_lines:
+        lines.append(f"  Crits    : {', '.join(crit_lines)}")
+
     # Weapons
     if ship.weapons:
         lines.append("")
@@ -380,6 +397,8 @@ def format_available_actions(actions_remaining: int) -> str:
         f"  {colored('stop', C.BRIGHT_CYAN)}                       — All stop (same as ahead 0)",
         f"  {colored('turn', C.BRIGHT_CYAN)} <port|starboard> <deg>"
         " — Order a turn (executes during drift)",
+        f"  {colored('strike', C.BRIGHT_YELLOW)} <target> <subsystem>"
+        " — Lightning Strike (shields must be down, ≤15 GU)",
         f"  {colored('pass', C.DIM)}                       — Do nothing",
         "",
         f"  {dim('Free actions (do not cost an action):')}",

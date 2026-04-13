@@ -101,6 +101,9 @@ class AttackResult:
     # Lance-specific
     lance_rolls: list[int] = field(default_factory=list)
 
+    # Critical hits triggered by penetrating hits
+    critical_hits: list = field(default_factory=list)  # type: ignore[type-arg]
+
     # Outcome
     target_destroyed: bool = False
     message: str = ""
@@ -287,6 +290,20 @@ def resolve_battery_attack(
         target.apply_morale_change(-3 * total_hull_damage)
         result.target_destroyed = not target.alive
 
+    # Critical hits — roll 2D6 per penetrating hit
+    if result.penetrating_hits > 0 and target.alive:
+        from spacefleet.combat.critical_hits import apply_critical_hit, roll_critical_hit
+
+        lock_on = attacker_stance.critical_chance_bonus > 0
+        for _ in range(result.penetrating_hits):
+            if not target.alive:
+                break
+            crit = roll_critical_hit(target, lock_on_bonus=lock_on, dice_roller=dr)
+            apply_critical_hit(target, crit)
+            result.critical_hits.append(crit)
+            if not target.alive:
+                result.target_destroyed = True
+
     # Build summary
     parts = [f"{raw_hits} hits"]
     if result.shield_blocked:
@@ -295,6 +312,8 @@ def resolve_battery_attack(
         parts.append(f"{result.armor_saves} deflected by armor")
     if total_hull_damage:
         parts.append(f"{total_hull_damage} hull damage")
+    if result.critical_hits:
+        parts.append(f"{len(result.critical_hits)} critical(s)")
     if result.target_destroyed:
         parts.append("TARGET DESTROYED")
     result.message = " → ".join(parts)
@@ -409,6 +428,20 @@ def resolve_lance_attack(
         target.apply_morale_change(-3 * hull_damage)
         result.target_destroyed = not target.alive
 
+    # Critical hits — roll 2D6 per penetrating lance hit
+    if result.penetrating_hits > 0 and target.alive:
+        from spacefleet.combat.critical_hits import apply_critical_hit, roll_critical_hit
+
+        lock_on = attacker_stance.critical_chance_bonus > 0
+        for _ in range(result.penetrating_hits):
+            if not target.alive:
+                break
+            crit = roll_critical_hit(target, lock_on_bonus=lock_on, dice_roller=dr)
+            apply_critical_hit(target, crit)
+            result.critical_hits.append(crit)
+            if not target.alive:
+                result.target_destroyed = True
+
     # Summary
     parts = [f"Rolls: [{', '.join(str(r) for r in rolls)}]"]
     parts.append(f"{raw_hits} hits (4+ needed)")
@@ -418,6 +451,8 @@ def resolve_lance_attack(
         parts.append(f"{result.armor_saves} saved by damage control")
     if hull_damage:
         parts.append(f"{hull_damage} hull damage (bypasses armor)")
+    if result.critical_hits:
+        parts.append(f"{len(result.critical_hits)} critical(s)")
     if result.target_destroyed:
         parts.append("TARGET DESTROYED")
     result.message = " → ".join(parts)

@@ -268,6 +268,18 @@ class SpacefleetClient:
                 "args": {},
             }
 
+        if cmd == "strike":
+            if len(args) < 2:
+                print("  Usage: strike <target_id> <subsystem>")
+                print("  Subsystems: generator, deck, engines, weapons")
+                return None
+            return {
+                "type": MSG_COMMAND,
+                "ship_id": ship_id,
+                "action": "strike",
+                "args": {"target": args[0], "subsystem": args[1]},
+            }
+
         return None
 
 

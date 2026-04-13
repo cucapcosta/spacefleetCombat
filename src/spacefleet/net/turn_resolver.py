@@ -22,7 +22,7 @@ from spacefleet.core.game_loop import (
     cleanup_projectiles,
     move_projectiles,
 )
-from spacefleet.core.types import Stance
+from spacefleet.core.types import MoraleState, Stance
 from spacefleet.models.projectile import Projectile
 from spacefleet.spatial.geometry import distance as geo_distance
 
@@ -135,6 +135,27 @@ class MoraleChangeEvent(TurnEvent):
     old_morale: int
     new_morale: int
     source: str = ""
+
+
+@dataclass
+class CriticalHitEvent(TurnEvent):
+    ship: Ship
+    attacker_name: str
+    result: object  # CriticalResult (avoid circular import)
+
+
+@dataclass
+class LightningStrikeEvent(TurnEvent):
+    attacker: Ship
+    target: Ship
+    result: object  # BoardingResult
+
+
+@dataclass
+class FireExtinguishedEvent(TurnEvent):
+    ship: Ship
+    roll: int
+    fires_remaining: int
 
 
 @dataclass
@@ -251,7 +272,59 @@ def resolve_turn(
                 )
             )
 
+    # ── 1b. LIGHTNING STRIKE SUB-PHASE ─────────────────────────
+    strike_cmds = sorted(
+        [(sid, cmd) for sid, cmd in commands.items() if cmd.action == "strike"],
+        key=lambda x: x[0],
+    )
+    for ship_id, cmd in strike_cmds:
+        ship = state.get_ship(ship_id)
+        if not ship.alive:
+            continue
+        target_id = cmd.args.get("target", "")
+        target = state.ships.get(target_id)
+        if target is None or not target.alive:
+            continue
+        # Range check
+        if geo_distance(ship.position, target.position) > 15.0:
+            continue
+        # Shields must be down
+        if target.shields_current > 0:
+            continue
+        # Resolve boarding
+        from spacefleet.combat.boarding import (
+            apply_boarding_result,
+            resolve_boarding,
+        )
+
+        assault_actions = ship.hull.assault_actions
+        if assault_actions <= 0:
+            continue
+        subsys = cmd.args.get("subsystem")
+        b_result = resolve_boarding(
+            ship, target, assault_actions,
+            subsystem_choice=subsys, dice_roller=state.dice,
+        )
+        apply_boarding_result(target, b_result, dice_roller=state.dice)
+        log.add(LightningStrikeEvent(attacker=ship, target=target, result=b_result))
+
     # ── 2. MOVEMENT SUB-PHASE ────────────────────────────────
+
+    # Morale speed penalties
+    for ship in state.alive_ships():
+        ms = ship.morale_state()
+        if ms == MoraleState.WAVERING:
+            cap = max(0.0, ship.effective_speed_max - 5)
+            if ship.speed > cap:
+                old = ship.speed
+                ship.speed = cap
+                log.add(SpeedChangeEvent(ship=ship, old_speed=old, new_speed=cap))
+        elif ms == MoraleState.BREAKING:
+            cap = ship.effective_speed_max * 0.5
+            if ship.speed > cap:
+                old = ship.speed
+                ship.speed = cap
+                log.add(SpeedChangeEvent(ship=ship, old_speed=old, new_speed=cap))
 
     # Apply speed / turn commands
     for ship_id, cmd in sorted(commands.items()):
@@ -329,6 +402,15 @@ def resolve_turn(
         if shields > 0 or fire_dmg > 0:
             log.add(EndOfTurnEvent(ship=ship, shields_regen=shields, fire_damage=fire_dmg))
 
+        # Fire extinguishing — leadership check
+        if ship.fires > 0:
+            roll = state.dice.d6()
+            if roll <= ship.effective_leadership:
+                ship.fires = max(0, ship.fires - 1)
+                log.add(FireExtinguishedEvent(
+                    ship=ship, roll=roll, fires_remaining=ship.fires,
+                ))
+
         # Morale loss from fires
         if ship.fires > 0:
             old_m = ship.morale
@@ -344,6 +426,10 @@ def resolve_turn(
 
         # Combustion regen
         ship.regenerate_combustion(15)
+
+        # Tick critical hit state
+        ship.tick_shields_suppressed()
+        ship.tick_temporary_repairs()
 
         # Morale natural recovery if no enemies within 80 GU
         enemies_nearby = any(
