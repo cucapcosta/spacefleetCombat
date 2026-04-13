@@ -335,7 +335,7 @@ class Ship:
 
     def tick_temporary_repairs(self) -> None:
         """Tick down temporary boarding crits and reverse effects on expiry."""
-        remaining: list = []
+        remaining: list[tuple[str, int]] = []
         for effect_key, turns_left in self.crit_temporary_repairs:
             new_turns = turns_left - 1
             if new_turns <= 0:

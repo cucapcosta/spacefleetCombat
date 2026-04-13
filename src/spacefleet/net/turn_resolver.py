@@ -27,6 +27,8 @@ from spacefleet.models.projectile import Projectile
 from spacefleet.spatial.geometry import distance as geo_distance
 
 if TYPE_CHECKING:
+    from spacefleet.combat.boarding import BoardingResult
+    from spacefleet.combat.critical_hits import CriticalResult
     from spacefleet.combat.resolution import AttackResult
     from spacefleet.core.types import Vector2D
     from spacefleet.models.ship import Ship
@@ -141,14 +143,14 @@ class MoraleChangeEvent(TurnEvent):
 class CriticalHitEvent(TurnEvent):
     ship: Ship
     attacker_name: str
-    result: object  # CriticalResult (avoid circular import)
+    result: CriticalResult
 
 
 @dataclass
 class LightningStrikeEvent(TurnEvent):
     attacker: Ship
     target: Ship
-    result: object  # BoardingResult
+    result: BoardingResult
 
 
 @dataclass
@@ -316,15 +318,15 @@ def resolve_turn(
         if ms == MoraleState.WAVERING:
             cap = max(0.0, ship.effective_speed_max - 5)
             if ship.speed > cap:
-                old = ship.speed
+                prev_speed = ship.speed
                 ship.speed = cap
-                log.add(SpeedChangeEvent(ship=ship, old_speed=old, new_speed=cap))
+                log.add(SpeedChangeEvent(ship=ship, old_speed=prev_speed, new_speed=cap))
         elif ms == MoraleState.BREAKING:
             cap = ship.effective_speed_max * 0.5
             if ship.speed > cap:
-                old = ship.speed
+                prev_speed = ship.speed
                 ship.speed = cap
-                log.add(SpeedChangeEvent(ship=ship, old_speed=old, new_speed=cap))
+                log.add(SpeedChangeEvent(ship=ship, old_speed=prev_speed, new_speed=cap))
 
     # Apply speed / turn commands
     for ship_id, cmd in sorted(commands.items()):

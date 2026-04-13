@@ -8,12 +8,14 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from spacefleet.combat.resolution import (
+from spacefleet.combat.gunnery import (
     GUNNERY_COLUMNS,
-    GUNNERY_TABLE,
+    column_index,
+    lookup_hits,
+)
+from spacefleet.combat.resolution import (
     AttackResult,
     HitDetail,
-    _clamp,
 )
 from spacefleet.core.types import WeaponType, heading_to_vector
 from spacefleet.dice import DiceRoller
@@ -107,12 +109,11 @@ def resolve_projectile_impact(
         target,
     )
     result.target_aspect = aspect_name
-    col_idx = _clamp(2 + aspect_shift, 0, 4)
+    col_idx = column_index(aspect_shift=aspect_shift, stance_shift=0)
     result.gunnery_column = GUNNERY_COLUMNS[col_idx]
 
     # ── Gunnery table lookup ──
-    table_fp = _clamp(fp, 1, max(GUNNERY_TABLE.keys()))
-    raw_hits = GUNNERY_TABLE[table_fp][col_idx]
+    raw_hits = lookup_hits(strength=fp, column=col_idx)
     result.raw_hits = raw_hits
 
     if raw_hits == 0:
