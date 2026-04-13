@@ -22,10 +22,11 @@ from spacefleet.combat.gunnery import (
     target_aspect as _get_target_aspect,
 )
 from spacefleet.combat.lance import lance_hit_count
-from spacefleet.core.types import MoraleState, WeaponType
+from spacefleet.core.types import WeaponType
 from spacefleet.data.stance_registry import StanceRegistry
 from spacefleet.dice import DiceRoller
 from spacefleet.dice import dice as default_dice
+from spacefleet.models.morale import accuracy_factor
 from spacefleet.spatial.geometry import (
     bearing_from_to,
     distance,
@@ -103,13 +104,7 @@ class AttackResult:
 
 def _morale_accuracy_factor(ship: Ship) -> float:
     """Return the hit multiplier based on morale state."""
-    return {
-        MoraleState.FULL: 1.0,
-        MoraleState.SHAKEN: 0.9,
-        MoraleState.WAVERING: 0.75,
-        MoraleState.BREAKING: 0.5,
-        MoraleState.MUTINY: 0.0,
-    }[ship.morale_state()]
+    return accuracy_factor(ship.morale_state())
 
 
 def _cannot_fire_reason(ship: Ship) -> str | None:

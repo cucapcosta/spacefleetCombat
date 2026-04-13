@@ -85,11 +85,6 @@ def test_unknown_slot_raises():
 
 
 def test_total_cost():
-    _slot = WeaponSlotDef(
-        id=1, name="P", arc=Arc.PROW,
-        size=WeaponSize.MEDIUM,
-        allowed_types=(WeaponType.BATTERY,),
-    )
     wp = _weapon(wtype=WeaponType.BATTERY, size=WeaponSize.MEDIUM)
     mount = WeaponMount(slot_id=1, slot_name="P", arc=Arc.PROW, weapon=wp)
     assert Loadout(weapons=[mount]).total_cost() == 10

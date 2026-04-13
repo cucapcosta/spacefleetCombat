@@ -6,6 +6,7 @@ costs combustion points; decelerating is free.
 """
 from __future__ import annotations
 
+import math
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -24,7 +25,7 @@ def combustion_cost(current_speed: float, target_speed: float) -> int:
     delta = target_speed - current_speed
     if delta <= 0:
         return 0
-    return int(delta + 0.999999)  # ceil for non-integer speeds
+    return math.ceil(delta)
 
 
 def accelerate(ship: Ship, *, target_speed: float) -> None:

@@ -22,7 +22,8 @@ from spacefleet.core.game_loop import (
     cleanup_projectiles,
     move_projectiles,
 )
-from spacefleet.core.types import MoraleState, Stance
+from spacefleet.core.types import Stance
+from spacefleet.models.morale import speed_cap
 from spacefleet.models.projectile import Projectile
 from spacefleet.spatial.geometry import distance as geo_distance
 
@@ -314,19 +315,11 @@ def resolve_turn(
 
     # Morale speed penalties
     for ship in state.alive_ships():
-        ms = ship.morale_state()
-        if ms == MoraleState.WAVERING:
-            cap = max(0.0, ship.effective_speed_max - 5)
-            if ship.speed > cap:
-                prev_speed = ship.speed
-                ship.speed = cap
-                log.add(SpeedChangeEvent(ship=ship, old_speed=prev_speed, new_speed=cap))
-        elif ms == MoraleState.BREAKING:
-            cap = ship.effective_speed_max * 0.5
-            if ship.speed > cap:
-                prev_speed = ship.speed
-                ship.speed = cap
-                log.add(SpeedChangeEvent(ship=ship, old_speed=prev_speed, new_speed=cap))
+        cap = speed_cap(ship.morale_state(), ship.effective_speed_max)
+        if ship.speed > cap:
+            prev_speed = ship.speed
+            ship.speed = cap
+            log.add(SpeedChangeEvent(ship=ship, old_speed=prev_speed, new_speed=cap))
 
     # Apply speed / turn commands
     for ship_id, cmd in sorted(commands.items()):

@@ -35,9 +35,13 @@ def resolve_movement_phase(
     ships: list[Ship],
     orders: dict[str, MoveOrder],
     *,
-    drift_fraction: float = 1.0,
+    drift_fraction: float = 0.5,
 ) -> list[MoveEvent]:
-    """Apply orders + drift, returning the events that occurred."""
+    """Apply orders + drift, returning the events that occurred.
+
+    Each ship drifts ``speed × drift_fraction`` GU; the default ``0.5``
+    matches ``Ship.apply_drift`` and the legacy ``net.turn_resolver``.
+    """
     events: list[MoveEvent] = []
 
     for ship in ships:

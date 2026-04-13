@@ -12,7 +12,7 @@ def test_count_hits_4plus():
 
 
 def test_lance_resolver_uses_4plus():
-    # Sanity: a deterministic dice roller produces a stable count
+    # Deterministic seed: 8d6 → [2, 5, 1, 3, 1, 4, 4, 4] → four 4+ hits
     dr = DiceRoller(seed=1)
     rolls = dr.roll_d6(8)
-    assert lance_hit_count(rolls) >= 0
+    assert lance_hit_count(rolls) == 4
