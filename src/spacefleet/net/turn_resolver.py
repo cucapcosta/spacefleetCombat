@@ -22,11 +22,14 @@ from spacefleet.core.game_loop import (
     cleanup_projectiles,
     move_projectiles,
 )
-from spacefleet.core.types import MoraleState, Stance
+from spacefleet.core.types import Stance
+from spacefleet.models.morale import speed_cap
 from spacefleet.models.projectile import Projectile
 from spacefleet.spatial.geometry import distance as geo_distance
 
 if TYPE_CHECKING:
+    from spacefleet.combat.boarding import BoardingResult
+    from spacefleet.combat.critical_hits import CriticalResult
     from spacefleet.combat.resolution import AttackResult
     from spacefleet.core.types import Vector2D
     from spacefleet.models.ship import Ship
@@ -141,14 +144,14 @@ class MoraleChangeEvent(TurnEvent):
 class CriticalHitEvent(TurnEvent):
     ship: Ship
     attacker_name: str
-    result: object  # CriticalResult (avoid circular import)
+    result: CriticalResult
 
 
 @dataclass
 class LightningStrikeEvent(TurnEvent):
     attacker: Ship
     target: Ship
-    result: object  # BoardingResult
+    result: BoardingResult
 
 
 @dataclass
@@ -312,19 +315,11 @@ def resolve_turn(
 
     # Morale speed penalties
     for ship in state.alive_ships():
-        ms = ship.morale_state()
-        if ms == MoraleState.WAVERING:
-            cap = max(0.0, ship.effective_speed_max - 5)
-            if ship.speed > cap:
-                old = ship.speed
-                ship.speed = cap
-                log.add(SpeedChangeEvent(ship=ship, old_speed=old, new_speed=cap))
-        elif ms == MoraleState.BREAKING:
-            cap = ship.effective_speed_max * 0.5
-            if ship.speed > cap:
-                old = ship.speed
-                ship.speed = cap
-                log.add(SpeedChangeEvent(ship=ship, old_speed=old, new_speed=cap))
+        cap = speed_cap(ship.morale_state(), ship.effective_speed_max)
+        if ship.speed > cap:
+            prev_speed = ship.speed
+            ship.speed = cap
+            log.add(SpeedChangeEvent(ship=ship, old_speed=prev_speed, new_speed=cap))
 
     # Apply speed / turn commands
     for ship_id, cmd in sorted(commands.items()):

@@ -7,9 +7,12 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
-from spacefleet.core.types import Stance
 from spacefleet.data.loader import YAML_AVAILABLE, get_data_dir, load_yaml_file
+
+if TYPE_CHECKING:
+    from spacefleet.core.types import Stance
 
 logger = logging.getLogger(__name__)
 

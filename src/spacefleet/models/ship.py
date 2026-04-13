@@ -189,15 +189,8 @@ class Ship:
 
     def morale_state(self) -> MoraleState:
         """Current morale threshold bracket."""
-        if self.morale >= 75:
-            return MoraleState.FULL
-        if self.morale >= 50:
-            return MoraleState.SHAKEN
-        if self.morale >= 25:
-            return MoraleState.WAVERING
-        if self.morale >= 1:
-            return MoraleState.BREAKING
-        return MoraleState.MUTINY
+        from spacefleet.models.morale import morale_state as _ms
+        return _ms(self.morale)
 
     def apply_morale_change(self, delta: int) -> int:
         """Adjust morale clamped to [0, morale_max].  Returns actual change."""
@@ -342,7 +335,7 @@ class Ship:
 
     def tick_temporary_repairs(self) -> None:
         """Tick down temporary boarding crits and reverse effects on expiry."""
-        remaining: list = []
+        remaining: list[tuple[str, int]] = []
         for effect_key, turns_left in self.crit_temporary_repairs:
             new_turns = turns_left - 1
             if new_turns <= 0:
