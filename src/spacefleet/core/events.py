@@ -2,6 +2,7 @@
 
 Phases publish events; CLI/UI/AI layers subscribe.  No external deps.
 """
+
 from __future__ import annotations
 
 import contextlib

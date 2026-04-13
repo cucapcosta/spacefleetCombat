@@ -3,6 +3,7 @@
 Applies speed/turn orders, then drifts every alive ship a half turn.
 Returns a list of typed events the renderer can format.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass

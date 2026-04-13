@@ -84,7 +84,9 @@ def _make_ship(
     assault_actions: int = 2,
 ) -> Ship:
     hull = _make_hull(
-        faction=faction, leadership=leadership, assault_actions=assault_actions,
+        faction=faction,
+        leadership=leadership,
+        assault_actions=assault_actions,
     )
     return Ship(
         id=name.lower().replace(" ", "_"),
@@ -133,7 +135,9 @@ class TestCriticalHitTable:
         ship = _make_ship()
         dr = DiceRoller(seed=1)
         result = roll_critical_hit(
-            ship, targeted_subsystem="engines", dice_roller=dr,
+            ship,
+            targeted_subsystem="engines",
+            dice_roller=dr,
         )
         assert result.effect == "engine_damaged"
         assert result.roll == 0  # no table roll
@@ -142,7 +146,10 @@ class TestCriticalHitTable:
         ship = _make_ship()
         dr = DiceRoller(seed=1)
         result = roll_critical_hit(
-            ship, targeted_subsystem="deck", is_temporary=True, dice_roller=dr,
+            ship,
+            targeted_subsystem="deck",
+            is_temporary=True,
+            dice_roller=dr,
         )
         assert result.is_temporary is True
         assert result.temporary_turns == 3
@@ -156,7 +163,9 @@ class TestApplyCritical:
         ship = _make_ship()
         ship.shields_current = 2
         crit = CriticalResult(
-            roll=2, name="Shields Collapsed", effect="shields_collapse",
+            roll=2,
+            name="Shields Collapsed",
+            effect="shields_collapse",
             shields_suppressed_turns=1,
         )
         apply_critical_hit(ship, crit)
@@ -167,7 +176,9 @@ class TestApplyCritical:
     def test_thrusters_damaged(self) -> None:
         ship = _make_ship()
         crit = CriticalResult(
-            roll=3, name="Thrusters Damaged", effect="thrusters_damaged",
+            roll=3,
+            name="Thrusters Damaged",
+            effect="thrusters_damaged",
         )
         apply_critical_hit(ship, crit)
         assert ship.crit_thrusters_damaged is True
@@ -176,7 +187,9 @@ class TestApplyCritical:
     def test_engine_damaged(self) -> None:
         ship = _make_ship()
         crit = CriticalResult(
-            roll=6, name="Engine Damaged", effect="engine_damaged",
+            roll=6,
+            name="Engine Damaged",
+            effect="engine_damaged",
             speed_modifier=0.5,
         )
         apply_critical_hit(ship, crit)
@@ -194,7 +207,10 @@ class TestApplyCritical:
         ship = _make_ship()
         initial_hull = ship.hull_current
         crit = CriticalResult(
-            roll=7, name="Hull Breach", effect="hull_breach", extra_damage=1,
+            roll=7,
+            name="Hull Breach",
+            effect="hull_breach",
+            extra_damage=1,
         )
         apply_critical_hit(ship, crit)
         assert ship.hull_current == initial_hull - 1
@@ -202,7 +218,9 @@ class TestApplyCritical:
     def test_bridge_destroyed(self) -> None:
         ship = _make_ship()
         crit = CriticalResult(
-            roll=11, name="Bridge Destroyed", effect="bridge_destroyed",
+            roll=11,
+            name="Bridge Destroyed",
+            effect="bridge_destroyed",
             leadership_penalty=3,
         )
         apply_critical_hit(ship, crit)
@@ -279,11 +297,7 @@ class TestBoarding:
         result = resolve_boarding(attacker, target, 2, dice_roller=dr)
         assert result.assault_actions == 2
         assert len(result.action_results) == 2
-        total = (
-            result.total_repelled
-            + result.total_crew_damage
-            + result.total_subsystem_hits
-        )
+        total = result.total_repelled + result.total_crew_damage + result.total_subsystem_hits
         # Each action produces at least one count (repelled counts as 1,
         # "both" counts as crew_damage+subsystem)
         assert total >= 2
@@ -295,13 +309,13 @@ class TestBoarding:
         for seed in range(1000):
             dr = DiceRoller(seed=seed)
             result = resolve_boarding(
-                attacker, target, 4,
-                subsystem_choice="engines", dice_roller=dr,
+                attacker,
+                target,
+                4,
+                subsystem_choice="engines",
+                dice_roller=dr,
             )
-            hits = [
-                ar for ar in result.action_results
-                if ar.subsystem_hit is not None
-            ]
+            hits = [ar for ar in result.action_results if ar.subsystem_hit is not None]
             if hits:
                 assert all(h.subsystem_hit == "engines" for h in hits)
                 break

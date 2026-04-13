@@ -1,4 +1,5 @@
 """Tests for the movement phase resolver."""
+
 from __future__ import annotations
 
 from spacefleet.core.types import Vector2D

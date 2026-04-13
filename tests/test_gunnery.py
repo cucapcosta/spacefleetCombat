@@ -1,4 +1,5 @@
 """Tests for combat.gunnery — gunnery table lookup + battery resolver."""
+
 from __future__ import annotations
 
 from spacefleet.combat.gunnery import (
@@ -27,7 +28,11 @@ def _ship(*, x: float, y: float, heading: float) -> Ship:
 def test_table_has_16_rows():
     assert len(GUNNERY_TABLE) == 16
     assert GUNNERY_COLUMNS == [
-        "far_closing", "closing", "abeam", "running", "far_running",
+        "far_closing",
+        "closing",
+        "abeam",
+        "running",
+        "far_running",
     ]
 
 

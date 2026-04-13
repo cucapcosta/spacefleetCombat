@@ -393,10 +393,7 @@ class GameRoom:
             return f"  Unknown stance: '{stance_name}'. Valid: {valid}"
 
         if ship.stance_cooldown_remaining > 0:
-            return (
-                f"  Cannot switch stance for"
-                f" {ship.stance_cooldown_remaining} more turn(s)."
-            )
+            return f"  Cannot switch stance for {ship.stance_cooldown_remaining} more turn(s)."
         if not ship.subsystem_deck:
             return "  Deck subsystem damaged — cannot switch stances."
         if ship.morale <= 0:

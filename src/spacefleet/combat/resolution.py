@@ -161,9 +161,7 @@ def resolve_battery_attack(
     # ── Step 2: range check ──
     dist = result.distance
     if dist > weapon.weapon.range:
-        result.message = (
-            f"Target is out of range ({dist:.0f} GU > {weapon.weapon.range:.0f} GU)."
-        )
+        result.message = f"Target is out of range ({dist:.0f} GU > {weapon.weapon.range:.0f} GU)."
         return result
     result.in_range = True
 
@@ -236,7 +234,8 @@ def resolve_battery_attack(
     # Brace hull damage reduction
     if target_stance.hull_damage_reduction > 0 and total_hull_damage > 0:
         total_hull_damage = max(
-            0, int(total_hull_damage * (1.0 - target_stance.hull_damage_reduction)),
+            0,
+            int(total_hull_damage * (1.0 - target_stance.hull_damage_reduction)),
         )
 
     result.penetrating_hits = sum(1 for d in result.hit_details if d.penetrated)
@@ -325,8 +324,7 @@ def resolve_lance_attack(
     # Range check
     if result.distance > weapon.weapon.range:
         result.message = (
-            f"Target out of range"
-            f" ({result.distance:.0f} > {weapon.weapon.range:.0f} GU)."
+            f"Target out of range ({result.distance:.0f} > {weapon.weapon.range:.0f} GU)."
         )
         return result
     result.in_range = True
@@ -335,7 +333,8 @@ def resolve_lance_attack(
     attacker_stance = StanceRegistry.get_for(attacker.stance)
     effective_strength = weapon.weapon.strength
     effective_strength = max(
-        1, int(effective_strength * attacker_stance.weapon_strength_modifier),
+        1,
+        int(effective_strength * attacker_stance.weapon_strength_modifier),
     )
 
     # Roll 1D6 per effective strength, 4+ hits
@@ -363,9 +362,7 @@ def resolve_lance_attack(
     # Brace extra save on target (even though lances bypass armor)
     target_stance = StanceRegistry.get_for(target.stance)
     if target_stance.extra_armor_save > 0:
-        saved = sum(
-            1 for _ in range(remaining) if dr.d6() >= target_stance.extra_armor_save
-        )
+        saved = sum(1 for _ in range(remaining) if dr.d6() >= target_stance.extra_armor_save)
         remaining -= saved
         result.armor_saves += saved
 
@@ -376,7 +373,8 @@ def resolve_lance_attack(
     # Brace hull damage reduction
     if target_stance.hull_damage_reduction > 0 and hull_damage > 0:
         hull_damage = max(
-            0, int(hull_damage * (1.0 - target_stance.hull_damage_reduction)),
+            0,
+            int(hull_damage * (1.0 - target_stance.hull_damage_reduction)),
         )
 
     result.hull_damage_dealt = hull_damage

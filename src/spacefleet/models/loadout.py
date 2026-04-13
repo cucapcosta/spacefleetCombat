@@ -1,4 +1,5 @@
 """Weapon + upgrade loadout container with slot validation."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -43,8 +44,7 @@ class Loadout:
                 )
             if mount.weapon.weapon_type not in slot.allowed_types:
                 raise LoadoutError(
-                    f"{mount.weapon.weapon_type.value} not allowed in "
-                    f"slot {slot.name} ({hull.id})",
+                    f"{mount.weapon.weapon_type.value} not allowed in slot {slot.name} ({hull.id})",
                 )
             if _SIZE_ORDER[mount.weapon.size] > _SIZE_ORDER[slot.size]:
                 raise LoadoutError(

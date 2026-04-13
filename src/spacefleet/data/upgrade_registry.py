@@ -3,6 +3,7 @@
 Falls back to a small inline set when YAML is unavailable so tests
 and headless runs still work.
 """
+
 from __future__ import annotations
 
 import logging

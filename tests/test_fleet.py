@@ -1,4 +1,5 @@
 """Tests for Fleet container."""
+
 from __future__ import annotations
 
 from spacefleet.core.types import Faction, Vector2D

@@ -4,6 +4,7 @@ Holds the ship roster, current turn, and lookup helpers.  The
 ``net.game_state.GameState`` server class composes/extends this for
 multiplayer-specific bookkeeping.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -37,14 +38,12 @@ class CoreGameState:
         return [s for s in self.ships.values() if s.alive]
 
     def enemies_of(self, ship: Ship) -> list[Ship]:
-        return [
-            s for s in self.ships.values()
-            if s.alive and s.faction != ship.faction
-        ]
+        return [s for s in self.ships.values() if s.alive and s.faction != ship.faction]
 
     def friendlies_of(self, ship: Ship) -> list[Ship]:
         return [
-            s for s in self.ships.values()
+            s
+            for s in self.ships.values()
             if s.alive and s.faction == ship.faction and s.id != ship.id
         ]
 

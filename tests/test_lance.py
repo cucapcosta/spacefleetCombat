@@ -1,4 +1,5 @@
 """Tests for combat.lance."""
+
 from __future__ import annotations
 
 from spacefleet.combat.lance import lance_hit_count

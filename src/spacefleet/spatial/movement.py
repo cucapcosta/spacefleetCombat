@@ -4,6 +4,7 @@ The geometry primitives (``apply_drift``, ``apply_turn``) stay on
 ``Ship``.  This module owns the *combustion economy* — accelerating
 costs combustion points; decelerating is free.
 """
+
 from __future__ import annotations
 
 import math

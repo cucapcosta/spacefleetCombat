@@ -1,4 +1,5 @@
 """Tests for the core event bus."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass

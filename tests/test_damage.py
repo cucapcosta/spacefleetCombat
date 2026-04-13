@@ -1,4 +1,5 @@
 """Tests for combat.damage — shield → armor → hull pipeline."""
+
 from __future__ import annotations
 
 from spacefleet.combat.damage import DamageReport, apply_damage_pipeline

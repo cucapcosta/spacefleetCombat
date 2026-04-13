@@ -448,10 +448,7 @@ class ServerRenderer:
                     f" {event.ship.name}: {crit.name}{extra}"
                 )
             if self._is_near_player(event.ship, player_ship_ids, state):
-                return (
-                    f"  {colored('Critical!', C.BRIGHT_GREEN)}"
-                    f" {event.ship.name}: {crit.name}"
-                )
+                return f"  {colored('Critical!', C.BRIGHT_GREEN)} {event.ship.name}: {crit.name}"
             return None
 
         if isinstance(event, LightningStrikeEvent):

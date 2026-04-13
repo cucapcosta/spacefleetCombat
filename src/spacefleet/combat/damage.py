@@ -3,6 +3,7 @@
 Pure helper extracted from ``combat/resolution.py``.  Operates on the
 target ship in place and returns a structured report.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass

@@ -1,4 +1,5 @@
 """Tests for the shooting phase resolver."""
+
 from __future__ import annotations
 
 from spacefleet.core.types import Faction, Vector2D
@@ -25,7 +26,9 @@ def test_no_orders_returns_empty():
     a = _ship("a", x=-30, faction=Faction.IMPERIAL_NAVY)
     b = _ship("b", x=30, faction=Faction.CHAOS_FLEET)
     results = resolve_shooting_phase(
-        ships=[a, b], orders={}, dice_roller=DiceRoller(seed=1),
+        ships=[a, b],
+        orders={},
+        dice_roller=DiceRoller(seed=1),
     )
     assert results == []
 

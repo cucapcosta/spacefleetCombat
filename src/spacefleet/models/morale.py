@@ -3,6 +3,7 @@
 The Ship class delegates state-bracket lookups to these helpers so
 combat code can call them without holding a Ship reference.
 """
+
 from __future__ import annotations
 
 from spacefleet.core.types import MoraleState

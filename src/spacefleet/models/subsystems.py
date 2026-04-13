@@ -1,4 +1,5 @@
 """Four-subsystem health tracker shared by ships and serializers."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -19,11 +20,7 @@ class Subsystems:
         return self.generator and self.deck and self.engines and self.weapons
 
     def damaged_list(self) -> list[str]:
-        return [
-            name
-            for name in SUBSYSTEM_NAMES
-            if not getattr(self, name)
-        ]
+        return [name for name in SUBSYSTEM_NAMES if not getattr(self, name)]
 
     def repair_all(self) -> None:
         self.generator = True

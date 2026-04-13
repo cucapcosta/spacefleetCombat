@@ -405,8 +405,7 @@ def format_available_actions(actions_remaining: int) -> str:
         f"  {colored('status', C.GREEN)}                     — Detailed ship status",
         f"  {colored('scan', C.GREEN)}                       — View sensor contacts",
         f"  {colored('weapons', C.GREEN)}                    — List weapons with arc info",
-        f"  {colored('stance', C.GREEN)} [name]"
-        "              — View or switch stance",
+        f"  {colored('stance', C.GREEN)} [name]              — View or switch stance",
         f"  {colored('help', C.GREEN)}                       — Show this list",
     ]
     return "\n".join(lines)

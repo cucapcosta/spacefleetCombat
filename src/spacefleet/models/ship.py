@@ -190,6 +190,7 @@ class Ship:
     def morale_state(self) -> MoraleState:
         """Current morale threshold bracket."""
         from spacefleet.models.morale import morale_state as _ms
+
         return _ms(self.morale)
 
     def apply_morale_change(self, delta: int) -> int:
@@ -359,7 +360,8 @@ class Ship:
             self.crit_thrusters_damaged = False
         elif effect_key == "bridge":
             self.crit_leadership_penalty = max(
-                0, self.crit_leadership_penalty - 3,
+                0,
+                self.crit_leadership_penalty - 3,
             )
         elif effect_key.startswith("weapon_"):
             slot_id = int(effect_key.split("_", 1)[1])

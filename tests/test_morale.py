@@ -1,4 +1,5 @@
 """Tests for the morale helpers."""
+
 from __future__ import annotations
 
 from spacefleet.core.types import MoraleState

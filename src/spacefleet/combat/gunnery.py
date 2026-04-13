@@ -5,6 +5,7 @@ The full ``resolve_battery_attack`` resolver still lives in
 ``combat.resolution`` for now; this is the canonical home for the
 table itself.
 """
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
@@ -19,15 +20,15 @@ GUNNERY_COLUMNS = ["far_closing", "closing", "abeam", "running", "far_running"]
 
 
 GUNNERY_TABLE: dict[int, list[int]] = {
-    1:  [0, 0, 1, 1, 1],
-    2:  [0, 1, 1, 1, 2],
-    3:  [0, 1, 1, 2, 2],
-    4:  [1, 1, 2, 2, 3],
-    5:  [1, 1, 2, 3, 3],
-    6:  [1, 2, 2, 3, 4],
-    7:  [1, 2, 3, 3, 4],
-    8:  [1, 2, 3, 4, 5],
-    9:  [2, 2, 3, 4, 5],
+    1: [0, 0, 1, 1, 1],
+    2: [0, 1, 1, 1, 2],
+    3: [0, 1, 1, 2, 2],
+    4: [1, 1, 2, 2, 3],
+    5: [1, 1, 2, 3, 3],
+    6: [1, 2, 2, 3, 4],
+    7: [1, 2, 3, 3, 4],
+    8: [1, 2, 3, 4, 5],
+    9: [2, 2, 3, 4, 5],
     10: [2, 3, 4, 4, 6],
     11: [2, 3, 4, 5, 6],
     12: [2, 3, 4, 5, 7],

@@ -1,4 +1,5 @@
 """Lance resolution helpers — 1D6 per strength, 4+ hits, ignores armor."""
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING

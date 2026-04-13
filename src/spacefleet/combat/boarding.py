@@ -89,13 +89,17 @@ def resolve_boarding(
         elif roll == 5:
             subsys = subsystem_choice or _random_subsystem(dr)
             ar = BoardingActionResult(
-                roll=roll, outcome="subsystem_hit", subsystem_hit=subsys,
+                roll=roll,
+                outcome="subsystem_hit",
+                subsystem_hit=subsys,
             )
             result.total_subsystem_hits += 1
         else:  # 6
             subsys = subsystem_choice or _random_subsystem(dr)
             ar = BoardingActionResult(
-                roll=roll, outcome="both", subsystem_hit=subsys,
+                roll=roll,
+                outcome="both",
+                subsystem_hit=subsys,
             )
             result.total_crew_damage += 1
             result.total_subsystem_hits += 1

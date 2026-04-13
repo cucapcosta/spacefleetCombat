@@ -1,4 +1,5 @@
 """Tests for the stance state helpers."""
+
 from __future__ import annotations
 
 from spacefleet.core.types import Stance

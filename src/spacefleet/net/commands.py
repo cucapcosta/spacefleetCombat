@@ -193,10 +193,7 @@ def _validate_strike(
 
     valid_subsystems = {"generator", "deck", "engines", "weapons"}
     if subsystem and subsystem not in valid_subsystems:
-        return (
-            f"Invalid subsystem: '{subsystem}'."
-            f" Valid: {', '.join(sorted(valid_subsystems))}"
-        )
+        return f"Invalid subsystem: '{subsystem}'. Valid: {', '.join(sorted(valid_subsystems))}"
 
     return Command(
         ship_id=ship_id,

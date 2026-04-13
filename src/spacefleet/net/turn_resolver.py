@@ -218,12 +218,14 @@ def resolve_turn(
                 old = ship.stance
                 ship.stance = Stance.STANDARD
                 ship.stance_cooldown_remaining = 0
-                log.add(StanceChangeEvent(
-                    ship=ship,
-                    old_stance=old,
-                    new_stance=Stance.STANDARD,
-                    reason="firing broke silence",
-                ))
+                log.add(
+                    StanceChangeEvent(
+                        ship=ship,
+                        old_stance=old,
+                        new_stance=Stance.STANDARD,
+                        reason="firing broke silence",
+                    )
+                )
 
         slot_id: int = cmd.args["slot"]
         bearing: float = cmd.args["bearing"]
@@ -305,8 +307,11 @@ def resolve_turn(
             continue
         subsys = cmd.args.get("subsystem")
         b_result = resolve_boarding(
-            ship, target, assault_actions,
-            subsystem_choice=subsys, dice_roller=state.dice,
+            ship,
+            target,
+            assault_actions,
+            subsystem_choice=subsys,
+            dice_roller=state.dice,
         )
         apply_boarding_result(target, b_result, dice_roller=state.dice)
         log.add(LightningStrikeEvent(attacker=ship, target=target, result=b_result))
@@ -402,19 +407,27 @@ def resolve_turn(
             roll = state.dice.d6()
             if roll <= ship.effective_leadership:
                 ship.fires = max(0, ship.fires - 1)
-                log.add(FireExtinguishedEvent(
-                    ship=ship, roll=roll, fires_remaining=ship.fires,
-                ))
+                log.add(
+                    FireExtinguishedEvent(
+                        ship=ship,
+                        roll=roll,
+                        fires_remaining=ship.fires,
+                    )
+                )
 
         # Morale loss from fires
         if ship.fires > 0:
             old_m = ship.morale
             ship.apply_morale_change(-3)
             if ship.morale != old_m:
-                log.add(MoraleChangeEvent(
-                    ship=ship, old_morale=old_m,
-                    new_morale=ship.morale, source="fire",
-                ))
+                log.add(
+                    MoraleChangeEvent(
+                        ship=ship,
+                        old_morale=old_m,
+                        new_morale=ship.morale,
+                        source="fire",
+                    )
+                )
 
         # Stance cooldown tick
         ship.tick_stance_cooldown()
@@ -428,17 +441,20 @@ def resolve_turn(
 
         # Morale natural recovery if no enemies within 80 GU
         enemies_nearby = any(
-            geo_distance(ship.position, e.position) <= 80.0
-            for e in state.enemy_ships_of(ship)
+            geo_distance(ship.position, e.position) <= 80.0 for e in state.enemy_ships_of(ship)
         )
         if not enemies_nearby and ship.morale < ship.morale_max:
             old_m = ship.morale
             ship.apply_morale_change(5)
             if ship.morale != old_m:
-                log.add(MoraleChangeEvent(
-                    ship=ship, old_morale=old_m,
-                    new_morale=ship.morale, source="recovery",
-                ))
+                log.add(
+                    MoraleChangeEvent(
+                        ship=ship,
+                        old_morale=old_m,
+                        new_morale=ship.morale,
+                        source="recovery",
+                    )
+                )
 
     return log
 
@@ -475,16 +491,24 @@ def _credit_kill(
                 old_m = other.morale
                 other.apply_morale_change(-15)
                 if other.morale != old_m:
-                    log.add(MoraleChangeEvent(
-                        ship=other, old_morale=old_m,
-                        new_morale=other.morale, source="ally destroyed",
-                    ))
+                    log.add(
+                        MoraleChangeEvent(
+                            ship=other,
+                            old_morale=old_m,
+                            new_morale=other.morale,
+                            source="ally destroyed",
+                        )
+                    )
             else:
                 # Enemy destroyed nearby: +5 morale
                 old_m = other.morale
                 other.apply_morale_change(5)
                 if other.morale != old_m:
-                    log.add(MoraleChangeEvent(
-                        ship=other, old_morale=old_m,
-                        new_morale=other.morale, source="enemy destroyed",
-                    ))
+                    log.add(
+                        MoraleChangeEvent(
+                            ship=other,
+                            old_morale=old_m,
+                            new_morale=other.morale,
+                            source="enemy destroyed",
+                        )
+                    )

@@ -1,4 +1,5 @@
 """Tests for the Subsystems dataclass."""
+
 from __future__ import annotations
 
 from spacefleet.models.subsystems import Subsystems

@@ -109,12 +109,8 @@ def _parse_stance(raw: dict) -> StanceData | None:  # type: ignore[type-arg]
             hull_damage_reduction=float(effects.get("hull_damage_reduction", 0.0)),
             turret_accuracy_bonus=float(effects.get("turret_accuracy_bonus", 0.0)),
             weapon_strength_modifier=float(effects.get("weapon_strength_modifier", 1.0)),
-            detection_signature_modifier=float(
-                effects.get("detection_signature_modifier", 1.0)
-            ),
-            own_sensor_range_modifier=float(
-                effects.get("own_sensor_range_modifier", 1.0)
-            ),
+            detection_signature_modifier=float(effects.get("detection_signature_modifier", 1.0)),
+            own_sensor_range_modifier=float(effects.get("own_sensor_range_modifier", 1.0)),
             cannot_fire=bool(effects.get("cannot_fire", False)),
             breaks_on_fire=bool(effects.get("breaks_on_fire", False)),
         )

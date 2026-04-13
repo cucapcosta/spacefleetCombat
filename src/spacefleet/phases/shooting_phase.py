@@ -4,6 +4,7 @@ Iterates fire orders, dispatches each through ``combat.resolution``,
 and returns the full list of :class:`AttackResult` records for the
 renderer.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass

@@ -1,4 +1,5 @@
 """Tests for combat.morale_effects."""
+
 from __future__ import annotations
 
 from spacefleet.combat.morale_effects import (

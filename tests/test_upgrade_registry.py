@@ -1,4 +1,5 @@
 """Tests for UpgradeRegistry."""
+
 from __future__ import annotations
 
 from spacefleet.data.upgrade_registry import UpgradeProfile, UpgradeRegistry

@@ -3,6 +3,7 @@
 Combat resolvers and boarding code call into this module so the
 constants live in one place and can be tweaked for balance.
 """
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING

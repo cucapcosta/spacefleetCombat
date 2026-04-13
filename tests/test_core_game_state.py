@@ -1,4 +1,5 @@
 """Tests for core.game_state."""
+
 from __future__ import annotations
 
 from spacefleet.core.game_state import CoreGameState

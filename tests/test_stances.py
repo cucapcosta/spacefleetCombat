@@ -274,7 +274,10 @@ class TestCombatModifiers:
         )
         attacker.switch_stance(Stance.RUNNING_SILENT)
         result = resolve_battery_attack(
-            attacker, attacker.weapons[0], target, dice_roller=DiceRoller(seed=1),
+            attacker,
+            attacker.weapons[0],
+            target,
+            dice_roller=DiceRoller(seed=1),
         )
         assert result.raw_hits == 0
         assert "cannot fire" in result.message.lower()
@@ -288,7 +291,10 @@ class TestCombatModifiers:
         )
         attacker.morale = 0
         result = resolve_battery_attack(
-            attacker, attacker.weapons[0], target, dice_roller=DiceRoller(seed=1),
+            attacker,
+            attacker.weapons[0],
+            target,
+            dice_roller=DiceRoller(seed=1),
         )
         assert "mutinied" in result.message.lower()
 
@@ -301,7 +307,10 @@ class TestCombatModifiers:
         )
         attacker.subsystem_weapons = False
         result = resolve_battery_attack(
-            attacker, attacker.weapons[0], target, dice_roller=DiceRoller(seed=1),
+            attacker,
+            attacker.weapons[0],
+            target,
+            dice_roller=DiceRoller(seed=1),
         )
         assert "disabled" in result.message.lower()
 
@@ -314,6 +323,9 @@ class TestCombatModifiers:
         )
         attacker.switch_stance(Stance.RUNNING_SILENT)
         result = resolve_lance_attack(
-            attacker, attacker.weapons[0], target, dice_roller=DiceRoller(seed=1),
+            attacker,
+            attacker.weapons[0],
+            target,
+            dice_roller=DiceRoller(seed=1),
         )
         assert "cannot fire" in result.message.lower()
