@@ -189,15 +189,8 @@ class Ship:
 
     def morale_state(self) -> MoraleState:
         """Current morale threshold bracket."""
-        if self.morale >= 75:
-            return MoraleState.FULL
-        if self.morale >= 50:
-            return MoraleState.SHAKEN
-        if self.morale >= 25:
-            return MoraleState.WAVERING
-        if self.morale >= 1:
-            return MoraleState.BREAKING
-        return MoraleState.MUTINY
+        from spacefleet.models.morale import morale_state as _ms
+        return _ms(self.morale)
 
     def apply_morale_change(self, delta: int) -> int:
         """Adjust morale clamped to [0, morale_max].  Returns actual change."""
