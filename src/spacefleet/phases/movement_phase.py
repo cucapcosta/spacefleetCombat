@@ -1,7 +1,7 @@
 """Movement phase resolver.
 
-Applies speed/turn orders, then drifts every alive ship a half turn.
-Returns a list of typed events the renderer can format.
+Handles morale speed caps, applies speed/turn orders (spending
+combustion through ``Ship.set_speed``), then drifts every alive ship.
 """
 
 from __future__ import annotations
@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from spacefleet.spatial.movement import CombustionError, accelerate, decelerate
+from spacefleet.models.morale import speed_cap
 
 if TYPE_CHECKING:
     from spacefleet.models.ship import Ship
@@ -21,15 +21,22 @@ class MoveOrder:
 
     target_speed: float | None = None
     turn_degrees: float | None = None
+    turn_direction: str = ""  # "port" | "starboard" — for renderer
 
 
 @dataclass
 class MoveEvent:
     """Outcome event produced by the phase resolver."""
 
-    kind: str  # "speed" | "turn" | "drift" | "blocked"
+    kind: str  # "morale_cap" | "speed" | "turn" | "drift"
     ship_id: str
     detail: str = ""
+    old_speed: float = 0.0
+    new_speed: float = 0.0
+    turn_direction: str = ""
+    turn_degrees: float = 0.0
+    heading_before: float = 0.0
+    heading_after: float = 0.0
 
 
 def resolve_movement_phase(
@@ -38,12 +45,33 @@ def resolve_movement_phase(
     *,
     drift_fraction: float = 0.5,
 ) -> list[MoveEvent]:
-    """Apply orders + drift, returning the events that occurred.
+    """Apply morale caps + orders + drift; return events.
 
-    Each ship drifts ``speed × drift_fraction`` GU; the default ``0.5``
-    matches ``Ship.apply_drift`` and the legacy ``net.turn_resolver``.
+    Order is:
+
+    1. Morale-driven speed cap (``models.morale.speed_cap``).
+    2. Per-ship speed / turn orders (combustion spent via
+       ``Ship.set_speed`` when over-burning).
+    3. Half-turn drift for every alive ship.
     """
     events: list[MoveEvent] = []
+
+    for ship in ships:
+        if not ship.alive:
+            continue
+        cap = speed_cap(ship.morale_state(), ship.effective_speed_max)
+        if ship.speed > cap:
+            prev = ship.speed
+            ship.speed = cap
+            events.append(
+                MoveEvent(
+                    kind="morale_cap",
+                    ship_id=ship.id,
+                    old_speed=prev,
+                    new_speed=cap,
+                    detail=f"morale cap → {cap:.0f}",
+                ),
+            )
 
     for ship in ships:
         if not ship.alive:
@@ -53,22 +81,17 @@ def resolve_movement_phase(
             continue
 
         if order.target_speed is not None:
-            try:
-                if order.target_speed >= ship.speed:
-                    accelerate(ship, target_speed=order.target_speed)
-                else:
-                    decelerate(ship, target_speed=order.target_speed)
-                events.append(
-                    MoveEvent(
-                        kind="speed",
-                        ship_id=ship.id,
-                        detail=f"speed → {ship.speed:.0f}",
-                    ),
-                )
-            except CombustionError as exc:
-                events.append(
-                    MoveEvent(kind="blocked", ship_id=ship.id, detail=str(exc)),
-                )
+            prev = ship.speed
+            ship.set_speed(order.target_speed)
+            events.append(
+                MoveEvent(
+                    kind="speed",
+                    ship_id=ship.id,
+                    old_speed=prev,
+                    new_speed=ship.speed,
+                    detail=f"speed → {ship.speed:.0f}",
+                ),
+            )
 
         if order.turn_degrees is not None and order.turn_degrees != 0.0:
             ship.apply_turn(order.turn_degrees)
@@ -76,6 +99,8 @@ def resolve_movement_phase(
                 MoveEvent(
                     kind="turn",
                     ship_id=ship.id,
+                    turn_direction=order.turn_direction,
+                    turn_degrees=abs(order.turn_degrees),
                     detail=f"{order.turn_degrees:+.0f}°",
                 ),
             )
@@ -88,6 +113,8 @@ def resolve_movement_phase(
             MoveEvent(
                 kind="drift",
                 ship_id=ship.id,
+                heading_before=before,
+                heading_after=after,
                 detail=f"hdg {before:.0f}→{after:.0f}",
             ),
         )

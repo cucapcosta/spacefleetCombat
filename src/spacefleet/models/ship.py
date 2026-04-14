@@ -14,6 +14,8 @@ from spacefleet.core.types import (
     heading_to_vector,
     normalize_angle,
 )
+from spacefleet.models.stance import StanceState, can_switch
+from spacefleet.models.subsystems import Subsystems
 
 if TYPE_CHECKING:
     from spacefleet.models.ship_profile import HullProfile
@@ -53,18 +55,14 @@ class Ship:
     fires: int = 0  # active fires (1 hull damage per fire per end-phase)
 
     # ── stance ──
-    stance: Stance = Stance.STANDARD
-    stance_cooldown_remaining: int = 0  # turns until next switch allowed
+    stance_state: StanceState = field(default_factory=StanceState)
 
     # ── combustion gauge ──
     combustion: int = 100
     combustion_max: int = 100
 
-    # ── subsystem stubs (True = operational) ──
-    subsystem_generator: bool = True
-    subsystem_deck: bool = True
-    subsystem_engines: bool = True
-    subsystem_weapons: bool = True
+    # ── subsystems ──
+    subsystems: Subsystems = field(default_factory=Subsystems)
 
     # ── critical hit state ──
     crit_speed_modifier: float = 1.0  # 0.5 if engines damaged
@@ -75,6 +73,62 @@ class Ship:
 
     # ── pending manoeuvre ──
     pending_turn: float = 0.0  # degrees remaining; positive = starboard, negative = port
+
+    # ================================================================
+    # Legacy subsystem accessors (forward to self.subsystems)
+    # ================================================================
+
+    @property
+    def subsystem_generator(self) -> bool:
+        return self.subsystems.generator
+
+    @subsystem_generator.setter
+    def subsystem_generator(self, value: bool) -> None:
+        self.subsystems.generator = value
+
+    @property
+    def subsystem_deck(self) -> bool:
+        return self.subsystems.deck
+
+    @subsystem_deck.setter
+    def subsystem_deck(self, value: bool) -> None:
+        self.subsystems.deck = value
+
+    @property
+    def subsystem_engines(self) -> bool:
+        return self.subsystems.engines
+
+    @subsystem_engines.setter
+    def subsystem_engines(self, value: bool) -> None:
+        self.subsystems.engines = value
+
+    @property
+    def subsystem_weapons(self) -> bool:
+        return self.subsystems.weapons
+
+    @subsystem_weapons.setter
+    def subsystem_weapons(self, value: bool) -> None:
+        self.subsystems.weapons = value
+
+    # ================================================================
+    # Legacy stance accessors (forward to self.stance_state)
+    # ================================================================
+
+    @property
+    def stance(self) -> Stance:
+        return self.stance_state.stance
+
+    @stance.setter
+    def stance(self, value: Stance) -> None:
+        self.stance_state.stance = value
+
+    @property
+    def stance_cooldown_remaining(self) -> int:
+        return self.stance_state.cooldown_remaining
+
+    @stance_cooldown_remaining.setter
+    def stance_cooldown_remaining(self, value: int) -> None:
+        self.stance_state.cooldown_remaining = value
 
     # ================================================================
     # Derived properties
@@ -163,25 +217,24 @@ class Ship:
 
     def switch_stance(self, new_stance: Stance) -> bool:
         """Switch to *new_stance* if allowed.  Returns True on success."""
-        if new_stance == self.stance:
+        if new_stance == self.stance_state.stance:
             return True  # no-op always allowed
-        if self.stance_cooldown_remaining > 0:
+        if not can_switch(
+            self.stance_state,
+            deck_operational=self.subsystems.deck,
+            morale=self.morale,
+        ):
             return False
-        if not self.subsystem_deck:
-            return False  # deck critical blocks switching
-        if self.morale <= 0:
-            return False  # mutiny blocks switching
         from spacefleet.data.stance_registry import StanceRegistry
 
-        self.stance = new_stance
+        self.stance_state.stance = new_stance
         data = StanceRegistry.get_for(new_stance)
-        self.stance_cooldown_remaining = data.switch_cooldown
+        self.stance_state.cooldown_remaining = data.switch_cooldown
         return True
 
     def tick_stance_cooldown(self) -> None:
         """Decrement stance cooldown by 1 (call once per end-of-turn)."""
-        if self.stance_cooldown_remaining > 0:
-            self.stance_cooldown_remaining -= 1
+        self.stance_state.tick()
 
     # ================================================================
     # Morale
@@ -297,8 +350,30 @@ class Ship:
         self.pending_turn = degrees
 
     def set_speed(self, target: float) -> None:
-        """Instantly change speed (clamped to [0, effective_speed_max])."""
-        self.speed = max(0.0, min(self.effective_speed_max, target))
+        """Change speed, spending combustion only for over-burn.
+
+        Speed inside ``[0, effective_speed_max]`` is free.  Raising the
+        speed *above* ``effective_speed_max`` costs 1 combustion per
+        1 GU of over-burn (rounded up).  If combustion runs out, the
+        target is clamped to ``effective_speed_max + available`` rather
+        than raising.  Deceleration is always free.
+        """
+        from spacefleet.spatial.movement import combustion_cost
+
+        target = max(0.0, target)
+        cap = self.effective_speed_max
+        cost = combustion_cost(
+            current_speed=self.speed,
+            target_speed=target,
+            max_speed=cap,
+        )
+        if cost == 0:
+            self.speed = target
+            return
+        affordable = min(cost, self.combustion)
+        self.combustion -= affordable
+        current_over = max(0.0, self.speed - cap)
+        self.speed = cap + current_over + affordable
 
     # ================================================================
     # End-of-turn

@@ -15,6 +15,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from spacefleet.combat.critical_hits import CriticalResult, apply_critical_hit, roll_critical_hit
+from spacefleet.combat.morale_effects import apply_boarding_crew_morale
 from spacefleet.dice import DiceRoller
 from spacefleet.dice import dice as default_dice
 
@@ -129,8 +130,7 @@ def apply_boarding_result(
     dr = dice_roller or default_dice
 
     # Crew damage → morale penalty
-    if result.total_crew_damage > 0:
-        target.apply_morale_change(-10 * result.total_crew_damage)
+    apply_boarding_crew_morale(target, crew_damage_count=result.total_crew_damage)
 
     # Subsystem hits → temporary crits (3-turn auto-repair)
     for ar in result.action_results:

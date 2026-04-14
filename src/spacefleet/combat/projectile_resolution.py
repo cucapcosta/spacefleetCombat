@@ -8,15 +8,14 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from spacefleet.combat.damage import apply_damage_pipeline
 from spacefleet.combat.gunnery import (
     GUNNERY_COLUMNS,
     column_index,
     lookup_hits,
 )
-from spacefleet.combat.resolution import (
-    AttackResult,
-    HitDetail,
-)
+from spacefleet.combat.morale_effects import apply_hull_damage_morale
+from spacefleet.combat.resolution import AttackResult
 from spacefleet.core.types import WeaponType, heading_to_vector
 from spacefleet.dice import DiceRoller
 from spacefleet.dice import dice as default_dice
@@ -121,35 +120,25 @@ def resolve_projectile_impact(
         return result
 
     # ── Damage pipeline: shields → armor → hull ──
-
-    # Shields
-    remaining = target.absorb_shields(raw_hits)
-    result.shield_blocked = raw_hits - remaining
-
-    # Armor — determine face struck by the incoming salvo
     incoming_from = (projectile.bearing + 180.0) % 360.0
     incoming_rel = relative_bearing(target.heading, incoming_from)
-    armor = target.armor_for_bearing(incoming_rel)
-
-    total_hull_damage = 0
-    for _ in range(remaining):
-        detail = HitDetail(armor_value=armor)
-        roll = dr.d6()
-        detail.armor_roll = roll
-        if roll >= armor:
-            detail.penetrated = True
-            detail.hull_damage = weapon.weapon.damage_per_hit
-            total_hull_damage += detail.hull_damage
-        else:
-            result.armor_saves += 1
-        result.hit_details.append(detail)
-
-    result.penetrating_hits = remaining - result.armor_saves
+    report = apply_damage_pipeline(
+        target=target,
+        hits=raw_hits,
+        relative_bearing=incoming_rel,
+        damage_per_hit=weapon.weapon.damage_per_hit,
+        dice_roller=dr,
+    )
+    result.shield_blocked = report.shield_blocked
+    result.armor_saves = report.armor_saves
+    result.hit_details = report.details
+    result.penetrating_hits = report.penetrating
+    total_hull_damage = report.hull_damage
     result.hull_damage_dealt = total_hull_damage
 
     if total_hull_damage > 0:
         target.take_hull_damage(total_hull_damage)
-        target.apply_morale_change(-3 * total_hull_damage)
+        apply_hull_damage_morale(target, hull_damage=total_hull_damage)
         result.target_destroyed = not target.alive
 
     # Critical hits per penetrating hit (no Lock On bonus for projectiles)

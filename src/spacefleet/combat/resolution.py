@@ -12,6 +12,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+from spacefleet.combat.damage import HitDetail, apply_damage_pipeline
 from spacefleet.combat.gunnery import (
     GUNNERY_COLUMNS,
     GUNNERY_TABLE,
@@ -22,6 +23,7 @@ from spacefleet.combat.gunnery import (
     target_aspect as _get_target_aspect,
 )
 from spacefleet.combat.lance import lance_hit_count
+from spacefleet.combat.morale_effects import apply_hull_damage_morale
 from spacefleet.core.types import WeaponType
 from spacefleet.data.stance_registry import StanceRegistry
 from spacefleet.dice import DiceRoller
@@ -38,23 +40,12 @@ if TYPE_CHECKING:
     from spacefleet.models.ship import Ship
     from spacefleet.models.weapon import WeaponMount
 
-__all__ = ["GUNNERY_COLUMNS", "GUNNERY_TABLE"]
+__all__ = ["GUNNERY_COLUMNS", "GUNNERY_TABLE", "HitDetail"]
 
 
 # ─────────────────────────────────────────────────────────────────
 # Result types
 # ─────────────────────────────────────────────────────────────────
-
-
-@dataclass
-class HitDetail:
-    """One individual hit going through the armor-save step."""
-
-    blocked_by_shield: bool = False
-    armor_roll: int = 0
-    armor_value: int = 0
-    penetrated: bool = False
-    hull_damage: int = 0
 
 
 @dataclass
@@ -194,30 +185,21 @@ def resolve_battery_attack(
         return result
 
     # ── Step 6: damage pipeline — shields → armor → hull ──
-
-    # Shields
-    remaining = target.absorb_shields(raw_hits)
-    result.shield_blocked = raw_hits - remaining
-
-    # Armor — determine which face the shots hit
     incoming_bearing = relative_bearing(
         target.heading,
         bearing_from_to(target.position, attacker.position),
     )
-    armor = target.armor_for_bearing(incoming_bearing)
-
-    total_hull_damage = 0
-    for _ in range(remaining):
-        detail = HitDetail(armor_value=armor)
-        roll = dr.d6()
-        detail.armor_roll = roll
-        if roll >= armor:
-            detail.penetrated = True
-            detail.hull_damage = weapon.weapon.damage_per_hit
-            total_hull_damage += detail.hull_damage
-        else:
-            result.armor_saves += 1
-        result.hit_details.append(detail)
+    report = apply_damage_pipeline(
+        target=target,
+        hits=raw_hits,
+        relative_bearing=incoming_bearing,
+        damage_per_hit=weapon.weapon.damage_per_hit,
+        dice_roller=dr,
+    )
+    result.shield_blocked = report.shield_blocked
+    result.armor_saves = report.armor_saves
+    result.hit_details = report.details
+    total_hull_damage = report.hull_damage
 
     # Brace extra armor save on target (D6 ≥ 6 negates penetration)
     target_stance = StanceRegistry.get_for(target.stance)
@@ -244,7 +226,7 @@ def resolve_battery_attack(
     # Apply hull damage + morale loss
     if total_hull_damage > 0:
         target.take_hull_damage(total_hull_damage)
-        target.apply_morale_change(-3 * total_hull_damage)
+        apply_hull_damage_morale(target, hull_damage=total_hull_damage)
         result.target_destroyed = not target.alive
 
     # Critical hits — roll 2D6 per penetrating hit
@@ -355,9 +337,17 @@ def resolve_lance_attack(
         result.message = "All lance shots miss!"
         return result
 
-    # Shields absorb first
-    remaining = target.absorb_shields(raw_hits)
-    result.shield_blocked = raw_hits - remaining
+    # Shields absorb first (pipeline skips armor since lances ignore it)
+    report = apply_damage_pipeline(
+        target=target,
+        hits=raw_hits,
+        relative_bearing=0.0,
+        damage_per_hit=weapon.weapon.damage_per_hit,
+        ignores_armor=True,
+        dice_roller=dr,
+    )
+    result.shield_blocked = report.shield_blocked
+    remaining = report.penetrating
 
     # Brace extra save on target (even though lances bypass armor)
     target_stance = StanceRegistry.get_for(target.stance)
@@ -381,7 +371,7 @@ def resolve_lance_attack(
 
     if hull_damage > 0:
         target.take_hull_damage(hull_damage)
-        target.apply_morale_change(-3 * hull_damage)
+        apply_hull_damage_morale(target, hull_damage=hull_damage)
         result.target_destroyed = not target.alive
 
     # Critical hits — roll 2D6 per penetrating lance hit

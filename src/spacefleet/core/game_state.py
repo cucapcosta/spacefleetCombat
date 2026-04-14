@@ -10,6 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+from spacefleet.core.events import EventBus
 from spacefleet.dice import DiceRoller
 
 if TYPE_CHECKING:
@@ -24,6 +25,7 @@ class CoreGameState:
     turn: int = 0
     ships: dict[str, Ship] = field(default_factory=dict)
     dice: DiceRoller = field(default_factory=DiceRoller)
+    events: EventBus = field(default_factory=EventBus)
 
     def add_ship(self, ship: Ship) -> None:
         self.ships[ship.id] = ship
@@ -37,10 +39,10 @@ class CoreGameState:
     def alive_ships(self) -> list[Ship]:
         return [s for s in self.ships.values() if s.alive]
 
-    def enemies_of(self, ship: Ship) -> list[Ship]:
+    def enemy_ships_of(self, ship: Ship) -> list[Ship]:
         return [s for s in self.ships.values() if s.alive and s.faction != ship.faction]
 
-    def friendlies_of(self, ship: Ship) -> list[Ship]:
+    def friendly_ships_of(self, ship: Ship) -> list[Ship]:
         return [
             s
             for s in self.ships.values()

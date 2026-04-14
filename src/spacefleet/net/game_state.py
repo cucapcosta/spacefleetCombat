@@ -9,6 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+from spacefleet.core.game_state import CoreGameState
 from spacefleet.core.types import Arc, Faction, Vector2D, heading_to_vector
 from spacefleet.data import HullRegistry, WeaponRegistry
 from spacefleet.data.demo_data import HULK_HULL, make_hulk_weapons
@@ -21,26 +22,22 @@ if TYPE_CHECKING:
 
 
 @dataclass
-class GameState:
-    """All mutable state for one match."""
+class GameState(CoreGameState):
+    """Authoritative server state for one match.
 
-    turn: int = 0
-    ships: dict[str, Ship] = field(default_factory=dict)
+    Extends :class:`CoreGameState` with multiplayer-specific bookkeeping:
+    projectiles in flight, per-player ship rosters, kill tally, fired
+    flag, and projectile id sequence.
+    """
+
     projectiles: list[Projectile] = field(default_factory=list)
     player_ships: dict[str, list[str]] = field(default_factory=dict)
     ai_ships: list[str] = field(default_factory=list)
     kills: dict[str, int] = field(default_factory=dict)
     fired_this_turn: set[str] = field(default_factory=set)
-    dice: DiceRoller = field(default_factory=DiceRoller)
     _next_proj_id: int = 0
 
-    # ── Ship lookups ─────────────────────────────────────────
-
-    def get_ship(self, ship_id: str) -> Ship:
-        return self.ships[ship_id]
-
-    def alive_ships(self) -> list[Ship]:
-        return [s for s in self.ships.values() if s.alive]
+    # ── Multiplayer-only lookups ─────────────────────────────
 
     def alive_ships_for(self, player_id: str) -> list[Ship]:
         ids = self.player_ships.get(player_id, [])
@@ -48,18 +45,6 @@ class GameState:
 
     def all_ships_list(self) -> list[Ship]:
         return list(self.ships.values())
-
-    def enemy_ships_of(self, ship: Ship) -> list[Ship]:
-        """All alive ships of a different faction."""
-        return [s for s in self.ships.values() if s.alive and s.faction != ship.faction]
-
-    def friendly_ships_of(self, ship: Ship) -> list[Ship]:
-        """All alive ships of the same faction (excluding self)."""
-        return [
-            s
-            for s in self.ships.values()
-            if s.alive and s.faction == ship.faction and s.id != ship.id
-        ]
 
     def owner_of(self, ship_id: str) -> str | None:
         """Return the player_id that owns *ship_id*, or None for AI ships."""
@@ -81,16 +66,6 @@ class GameState:
     def next_projectile_id(self) -> str:
         self._next_proj_id += 1
         return f"salvo_{self._next_proj_id}"
-
-    # ── Game-over checks ─────────────────────────────────────
-
-    def is_game_over(self) -> bool:
-        """True when one faction has no alive ships."""
-        factions_alive: set[Faction] = set()
-        for s in self.ships.values():
-            if s.alive:
-                factions_alive.add(s.faction)
-        return len(factions_alive) < 2
 
     # ── Factory methods ──────────────────────────────────────
 

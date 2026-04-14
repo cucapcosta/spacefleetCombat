@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from spacefleet.combat.projectile_resolution import resolve_lance_ray
+from spacefleet.core.events import Event
 from spacefleet.core.game_loop import (
     apply_end_of_turn,
     check_projectile_collisions,
@@ -23,11 +24,13 @@ from spacefleet.core.game_loop import (
     move_projectiles,
 )
 from spacefleet.core.types import Stance
-from spacefleet.models.morale import speed_cap
 from spacefleet.models.projectile import Projectile
+from spacefleet.phases.movement_phase import MoveOrder, resolve_movement_phase
 from spacefleet.spatial.geometry import distance as geo_distance
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from spacefleet.combat.boarding import BoardingResult
     from spacefleet.combat.critical_hits import CriticalResult
     from spacefleet.combat.resolution import AttackResult
@@ -42,10 +45,8 @@ if TYPE_CHECKING:
 
 
 @dataclass
-class TurnEvent:
+class TurnEvent(Event):
     """Base class for all events in a turn."""
-
-    pass
 
 
 @dataclass
@@ -198,6 +199,10 @@ def resolve_turn(
     log = TurnLog(turn=state.turn)
     state.fired_this_turn.clear()
 
+    def emit(event: TurnEvent) -> None:
+        log.events.append(event)
+        state.events.publish(event)
+
     # ── 1. FIRE SUB-PHASE ────────────────────────────────────
     # Sort by ship_id for deterministic ordering
     fire_cmds = sorted(
@@ -218,7 +223,7 @@ def resolve_turn(
                 old = ship.stance
                 ship.stance = Stance.STANDARD
                 ship.stance_cooldown_remaining = 0
-                log.add(
+                emit(
                     StanceChangeEvent(
                         ship=ship,
                         old_stance=old,
@@ -242,7 +247,7 @@ def resolve_turn(
                 state.enemy_ships_of(ship),
                 dice_roller=state.dice,
             )
-            log.add(
+            emit(
                 LanceFireEvent(
                     ship=ship,
                     weapon_name=weapon.weapon.name,
@@ -251,7 +256,7 @@ def resolve_turn(
                 )
             )
             if result is not None and result.target_destroyed:
-                _credit_kill(state, ship_id, result.target_name, log)
+                _credit_kill(state, ship_id, result.target_name, emit)
         else:
             # Battery — create projectile salvo
             proj = Projectile(
@@ -267,7 +272,7 @@ def resolve_turn(
                 max_range=weapon.weapon.range,
             )
             state.projectiles.append(proj)
-            log.add(
+            emit(
                 SalvoLaunchEvent(
                     ship=ship,
                     weapon_name=weapon.weapon.name,
@@ -314,49 +319,64 @@ def resolve_turn(
             dice_roller=state.dice,
         )
         apply_boarding_result(target, b_result, dice_roller=state.dice)
-        log.add(LightningStrikeEvent(attacker=ship, target=target, result=b_result))
+        emit(LightningStrikeEvent(attacker=ship, target=target, result=b_result))
 
     # ── 2. MOVEMENT SUB-PHASE ────────────────────────────────
-
-    # Morale speed penalties
-    for ship in state.alive_ships():
-        cap = speed_cap(ship.morale_state(), ship.effective_speed_max)
-        if ship.speed > cap:
-            prev_speed = ship.speed
-            ship.speed = cap
-            log.add(SpeedChangeEvent(ship=ship, old_speed=prev_speed, new_speed=cap))
-
-    # Apply speed / turn commands
-    for ship_id, cmd in sorted(commands.items()):
-        ship = state.get_ship(ship_id)
-        if not ship.alive:
+    move_orders: dict[str, MoveOrder] = {}
+    for ship_id, cmd in commands.items():
+        maybe_ship = state.ships.get(ship_id)
+        if maybe_ship is None or not maybe_ship.alive:
             continue
-
         if cmd.action == "ahead":
-            old_speed = ship.speed
-            ship.set_speed(cmd.args["speed"])
-            log.add(SpeedChangeEvent(ship=ship, old_speed=old_speed, new_speed=ship.speed))
+            move_orders[ship_id] = MoveOrder(target_speed=cmd.args["speed"])
         elif cmd.action == "stop":
-            old_speed = ship.speed
-            ship.set_speed(0.0)
-            log.add(SpeedChangeEvent(ship=ship, old_speed=old_speed, new_speed=0.0))
+            move_orders[ship_id] = MoveOrder(target_speed=0.0)
         elif cmd.action == "turn":
             degrees = cmd.args["degrees"]
             if cmd.args["direction"] == "port":
                 degrees = -degrees
-            ship.apply_turn(degrees)
-            log.add(
+            move_orders[ship_id] = MoveOrder(
+                turn_degrees=degrees,
+                turn_direction=cmd.args["direction"],
+            )
+
+    move_events = resolve_movement_phase(
+        state.alive_ships(),
+        move_orders,
+        drift_fraction=0.5,
+    )
+    for ev in move_events:
+        ship = state.ships[ev.ship_id]
+        if ev.kind in ("morale_cap", "speed"):
+            emit(
+                SpeedChangeEvent(
+                    ship=ship,
+                    old_speed=ev.old_speed,
+                    new_speed=ev.new_speed,
+                ),
+            )
+        elif ev.kind == "turn":
+            emit(
                 TurnOrderEvent(
                     ship=ship,
-                    direction=cmd.args["direction"],
-                    degrees=cmd.args["degrees"],
-                )
+                    direction=ev.turn_direction,
+                    degrees=ev.turn_degrees,
+                ),
+            )
+        elif ev.kind == "drift":
+            emit(
+                DriftEvent(
+                    ship=ship,
+                    old_pos_str=repr(ship.position),
+                    heading_before=ev.heading_before,
+                    heading_after=ev.heading_after,
+                ),
             )
 
     # Projectiles advance
     movements = move_projectiles(state.projectiles, fraction=0.5)
     for proj, old_pos, new_pos in movements:
-        log.add(SalvoMoveEvent(proj=proj, old_pos=old_pos, new_pos=new_pos))
+        emit(SalvoMoveEvent(proj=proj, old_pos=old_pos, new_pos=new_pos))
 
     # Check projectile collisions
     impacts = check_projectile_collisions(
@@ -365,29 +385,16 @@ def resolve_turn(
         state.dice,
     )
     for proj, target, result in impacts:
-        log.add(SalvoImpactEvent(proj=proj, target=target, result=result))
+        emit(SalvoImpactEvent(proj=proj, target=target, result=result))
         if result.target_destroyed:
-            _credit_kill(state, proj.attacker_id, result.target_name, log)
-
-    # Drift all alive ships
-    for ship in state.alive_ships():
-        old_pos_str = repr(ship.position)
-        h_before, h_after = ship.apply_drift(0.5)
-        log.add(
-            DriftEvent(
-                ship=ship,
-                old_pos_str=old_pos_str,
-                heading_before=h_before,
-                heading_after=h_after,
-            )
-        )
+            _credit_kill(state, proj.attacker_id, result.target_name, emit)
 
     # Cleanup expired projectiles
     expired = cleanup_projectiles(state.projectiles)
     impact_projs = {id(e.proj) for e in log.events if isinstance(e, SalvoImpactEvent)}
     for proj in expired:
         if id(proj) not in impact_projs:
-            log.add(SalvoExpiredEvent(proj=proj))
+            emit(SalvoExpiredEvent(proj=proj))
 
     # ── 3. END-OF-TURN SUB-PHASE ─────────────────────────────
 
@@ -400,14 +407,14 @@ def resolve_turn(
             shields, fire_dmg = apply_end_of_turn(ship)
 
         if shields > 0 or fire_dmg > 0:
-            log.add(EndOfTurnEvent(ship=ship, shields_regen=shields, fire_damage=fire_dmg))
+            emit(EndOfTurnEvent(ship=ship, shields_regen=shields, fire_damage=fire_dmg))
 
         # Fire extinguishing — leadership check
         if ship.fires > 0:
             roll = state.dice.d6()
             if roll <= ship.effective_leadership:
                 ship.fires = max(0, ship.fires - 1)
-                log.add(
+                emit(
                     FireExtinguishedEvent(
                         ship=ship,
                         roll=roll,
@@ -420,7 +427,7 @@ def resolve_turn(
             old_m = ship.morale
             ship.apply_morale_change(-3)
             if ship.morale != old_m:
-                log.add(
+                emit(
                     MoraleChangeEvent(
                         ship=ship,
                         old_morale=old_m,
@@ -447,7 +454,7 @@ def resolve_turn(
             old_m = ship.morale
             ship.apply_morale_change(5)
             if ship.morale != old_m:
-                log.add(
+                emit(
                     MoraleChangeEvent(
                         ship=ship,
                         old_morale=old_m,
@@ -466,7 +473,7 @@ def _credit_kill(
     state: GameState,
     killer_ship_id: str,
     target_name: str,
-    log: TurnLog,
+    emit: Callable[[TurnEvent], None],
 ) -> None:
     """Credit a kill to the player who owns *killer_ship_id*."""
     owner = state.owner_of(killer_ship_id)
@@ -477,7 +484,7 @@ def _credit_kill(
     for ship in state.ships.values():
         if ship.name == target_name and not ship.alive:
             destroyed = ship
-            log.add(DestroyedEvent(ship=ship, killer_player=owner))
+            emit(DestroyedEvent(ship=ship, killer_player=owner))
             break
 
     # Morale effects from destruction on nearby ships
@@ -491,7 +498,7 @@ def _credit_kill(
                 old_m = other.morale
                 other.apply_morale_change(-15)
                 if other.morale != old_m:
-                    log.add(
+                    emit(
                         MoraleChangeEvent(
                             ship=other,
                             old_morale=old_m,
@@ -504,7 +511,7 @@ def _credit_kill(
                 old_m = other.morale
                 other.apply_morale_change(5)
                 if other.morale != old_m:
-                    log.add(
+                    emit(
                         MoraleChangeEvent(
                             ship=other,
                             old_morale=old_m,
