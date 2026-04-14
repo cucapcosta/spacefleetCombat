@@ -37,10 +37,10 @@ class CoreGameState:
     def alive_ships(self) -> list[Ship]:
         return [s for s in self.ships.values() if s.alive]
 
-    def enemies_of(self, ship: Ship) -> list[Ship]:
+    def enemy_ships_of(self, ship: Ship) -> list[Ship]:
         return [s for s in self.ships.values() if s.alive and s.faction != ship.faction]
 
-    def friendlies_of(self, ship: Ship) -> list[Ship]:
+    def friendly_ships_of(self, ship: Ship) -> list[Ship]:
         return [
             s
             for s in self.ships.values()

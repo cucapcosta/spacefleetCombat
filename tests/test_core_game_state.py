@@ -35,8 +35,8 @@ def test_enemy_lookup():
     b = _ship("b", Faction.CHAOS_FLEET)
     state.add_ship(a)
     state.add_ship(b)
-    assert state.enemies_of(a) == [b]
-    assert state.friendlies_of(a) == []
+    assert state.enemy_ships_of(a) == [b]
+    assert state.friendly_ships_of(a) == []
 
 
 def test_advance_turn_increments():
