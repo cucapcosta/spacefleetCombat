@@ -297,8 +297,30 @@ class Ship:
         self.pending_turn = degrees
 
     def set_speed(self, target: float) -> None:
-        """Instantly change speed (clamped to [0, effective_speed_max])."""
-        self.speed = max(0.0, min(self.effective_speed_max, target))
+        """Change speed, spending combustion only for over-burn.
+
+        Speed inside ``[0, effective_speed_max]`` is free.  Raising the
+        speed *above* ``effective_speed_max`` costs 1 combustion per
+        1 GU of over-burn (rounded up).  If combustion runs out, the
+        target is clamped to ``effective_speed_max + available`` rather
+        than raising.  Deceleration is always free.
+        """
+        from spacefleet.spatial.movement import combustion_cost
+
+        target = max(0.0, target)
+        cap = self.effective_speed_max
+        cost = combustion_cost(
+            current_speed=self.speed,
+            target_speed=target,
+            max_speed=cap,
+        )
+        if cost == 0:
+            self.speed = target
+            return
+        affordable = min(cost, self.combustion)
+        self.combustion -= affordable
+        current_over = max(0.0, self.speed - cap)
+        self.speed = cap + current_over + affordable
 
     # ================================================================
     # End-of-turn

@@ -1,51 +1,34 @@
-"""Movement helpers: combustion spending + speed transitions.
+"""Combustion economy for over-burn movement.
 
-The geometry primitives (``apply_drift``, ``apply_turn``) stay on
-``Ship``.  This module owns the *combustion economy* — accelerating
-costs combustion points; decelerating is free.
+Combustion is afterburner fuel — it is **only** spent when a ship
+accelerates above its ``effective_speed_max``.  Normal speed changes
+inside ``[0, effective_speed_max]`` and any deceleration are free.
+
+``Ship.set_speed`` is the single public API; this module only exposes
+the pure helpers it needs.
 """
 
 from __future__ import annotations
 
 import math
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from spacefleet.models.ship import Ship
 
 
-class CombustionError(RuntimeError):
-    """Raised when a ship cannot pay the combustion cost of a manoeuvre."""
+def combustion_cost(
+    *,
+    current_speed: float,
+    target_speed: float,
+    max_speed: float,
+) -> int:
+    """Combustion cost of moving from *current_speed* to *target_speed*.
 
-
-def combustion_cost(current_speed: float, target_speed: float) -> int:
-    """Combustion points required to change *current_speed* to *target_speed*.
-
-    Acceleration: ``ceil(target − current)``.  Deceleration: free.
+    Only the portion **above** *max_speed* costs combustion.  The cost is
+    ``ceil(target_over − current_over)`` where ``*_over`` is
+    ``max(0, speed − max_speed)``.  Returns 0 for any change that stays
+    within the normal range or that decreases the over-burn portion.
     """
-    delta = target_speed - current_speed
-    if delta <= 0:
+    current_over = max(0.0, current_speed - max_speed)
+    target_over = max(0.0, target_speed - max_speed)
+    additional = target_over - current_over
+    if additional <= 0:
         return 0
-    return math.ceil(delta)
-
-
-def accelerate(ship: Ship, *, target_speed: float) -> None:
-    """Spend combustion to raise *ship*'s speed.
-
-    Clamps to ``effective_speed_max``.  Raises :class:`CombustionError`
-    if the ship lacks the combustion to reach the (clamped) target.
-    """
-    target = min(target_speed, ship.effective_speed_max)
-    cost = combustion_cost(ship.speed, target)
-    if cost > ship.combustion:
-        raise CombustionError(
-            f"{ship.name}: needs {cost} combustion, has {ship.combustion}",
-        )
-    ship.combustion -= cost
-    ship.speed = target
-
-
-def decelerate(ship: Ship, *, target_speed: float) -> None:
-    """Reduce *ship*'s speed for free.  Clamps to ``[0, current]``."""
-    target = max(0.0, min(target_speed, ship.speed))
-    ship.speed = target
+    return math.ceil(additional)

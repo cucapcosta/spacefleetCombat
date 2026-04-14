@@ -27,7 +27,7 @@ def test_no_orders_drifts_ships():
     assert any(e.kind == "drift" for e in log)
 
 
-def test_accelerate_then_drift():
+def test_accelerate_within_max_is_free():
     ship = _ship("a")
     ship.combustion = 50
     log = resolve_movement_phase(
@@ -35,9 +35,22 @@ def test_accelerate_then_drift():
         orders={"a": MoveOrder(target_speed=10.0)},
     )
     assert ship.speed == 10.0
-    assert ship.combustion == 40
+    assert ship.combustion == 50
     assert any(e.kind == "speed" for e in log)
     assert any(e.kind == "drift" for e in log)
+
+
+def test_over_burn_spends_combustion():
+    ship = _ship("a")
+    ship.combustion = 10
+    cap = ship.effective_speed_max
+    log = resolve_movement_phase(
+        [ship],
+        orders={"a": MoveOrder(target_speed=cap + 3)},
+    )
+    assert ship.speed == cap + 3
+    assert ship.combustion == 7
+    assert any(e.kind == "speed" for e in log)
 
 
 def test_turn_order_pivots():

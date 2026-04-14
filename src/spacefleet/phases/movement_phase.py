@@ -9,8 +9,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from spacefleet.spatial.movement import CombustionError, accelerate, decelerate
-
 if TYPE_CHECKING:
     from spacefleet.models.ship import Ship
 
@@ -53,22 +51,14 @@ def resolve_movement_phase(
             continue
 
         if order.target_speed is not None:
-            try:
-                if order.target_speed >= ship.speed:
-                    accelerate(ship, target_speed=order.target_speed)
-                else:
-                    decelerate(ship, target_speed=order.target_speed)
-                events.append(
-                    MoveEvent(
-                        kind="speed",
-                        ship_id=ship.id,
-                        detail=f"speed → {ship.speed:.0f}",
-                    ),
-                )
-            except CombustionError as exc:
-                events.append(
-                    MoveEvent(kind="blocked", ship_id=ship.id, detail=str(exc)),
-                )
+            ship.set_speed(order.target_speed)
+            events.append(
+                MoveEvent(
+                    kind="speed",
+                    ship_id=ship.id,
+                    detail=f"speed → {ship.speed:.0f}",
+                ),
+            )
 
         if order.turn_degrees is not None and order.turn_degrees != 0.0:
             ship.apply_turn(order.turn_degrees)
