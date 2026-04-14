@@ -14,6 +14,7 @@ from spacefleet.core.types import (
     heading_to_vector,
     normalize_angle,
 )
+from spacefleet.models.stance import StanceState, can_switch
 from spacefleet.models.subsystems import Subsystems
 
 if TYPE_CHECKING:
@@ -54,8 +55,7 @@ class Ship:
     fires: int = 0  # active fires (1 hull damage per fire per end-phase)
 
     # ── stance ──
-    stance: Stance = Stance.STANDARD
-    stance_cooldown_remaining: int = 0  # turns until next switch allowed
+    stance_state: StanceState = field(default_factory=StanceState)
 
     # ── combustion gauge ──
     combustion: int = 100
@@ -109,6 +109,26 @@ class Ship:
     @subsystem_weapons.setter
     def subsystem_weapons(self, value: bool) -> None:
         self.subsystems.weapons = value
+
+    # ================================================================
+    # Legacy stance accessors (forward to self.stance_state)
+    # ================================================================
+
+    @property
+    def stance(self) -> Stance:
+        return self.stance_state.stance
+
+    @stance.setter
+    def stance(self, value: Stance) -> None:
+        self.stance_state.stance = value
+
+    @property
+    def stance_cooldown_remaining(self) -> int:
+        return self.stance_state.cooldown_remaining
+
+    @stance_cooldown_remaining.setter
+    def stance_cooldown_remaining(self, value: int) -> None:
+        self.stance_state.cooldown_remaining = value
 
     # ================================================================
     # Derived properties
@@ -197,25 +217,24 @@ class Ship:
 
     def switch_stance(self, new_stance: Stance) -> bool:
         """Switch to *new_stance* if allowed.  Returns True on success."""
-        if new_stance == self.stance:
+        if new_stance == self.stance_state.stance:
             return True  # no-op always allowed
-        if self.stance_cooldown_remaining > 0:
+        if not can_switch(
+            self.stance_state,
+            deck_operational=self.subsystems.deck,
+            morale=self.morale,
+        ):
             return False
-        if not self.subsystem_deck:
-            return False  # deck critical blocks switching
-        if self.morale <= 0:
-            return False  # mutiny blocks switching
         from spacefleet.data.stance_registry import StanceRegistry
 
-        self.stance = new_stance
+        self.stance_state.stance = new_stance
         data = StanceRegistry.get_for(new_stance)
-        self.stance_cooldown_remaining = data.switch_cooldown
+        self.stance_state.cooldown_remaining = data.switch_cooldown
         return True
 
     def tick_stance_cooldown(self) -> None:
         """Decrement stance cooldown by 1 (call once per end-of-turn)."""
-        if self.stance_cooldown_remaining > 0:
-            self.stance_cooldown_remaining -= 1
+        self.stance_state.tick()
 
     # ================================================================
     # Morale
