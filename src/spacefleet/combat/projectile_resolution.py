@@ -13,6 +13,7 @@ from spacefleet.combat.gunnery import (
     column_index,
     lookup_hits,
 )
+from spacefleet.combat.morale_effects import apply_hull_damage_morale
 from spacefleet.combat.resolution import (
     AttackResult,
     HitDetail,
@@ -149,7 +150,7 @@ def resolve_projectile_impact(
 
     if total_hull_damage > 0:
         target.take_hull_damage(total_hull_damage)
-        target.apply_morale_change(-3 * total_hull_damage)
+        apply_hull_damage_morale(target, hull_damage=total_hull_damage)
         result.target_destroyed = not target.alive
 
     # Critical hits per penetrating hit (no Lock On bonus for projectiles)

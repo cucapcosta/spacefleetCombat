@@ -10,6 +10,7 @@ import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from spacefleet.combat.morale_effects import apply_critical_hit_morale
 from spacefleet.core.types import Arc
 from spacefleet.dice import DiceRoller
 from spacefleet.dice import dice as default_dice
@@ -334,4 +335,4 @@ def apply_critical_hit(ship: Ship, result: CriticalResult) -> None:
             ship.crit_temporary_repairs.append(("deck", result.temporary_turns))
 
     # Morale penalty for every critical hit
-    ship.apply_morale_change(-5)
+    apply_critical_hit_morale(ship)

@@ -22,6 +22,7 @@ from spacefleet.combat.gunnery import (
     target_aspect as _get_target_aspect,
 )
 from spacefleet.combat.lance import lance_hit_count
+from spacefleet.combat.morale_effects import apply_hull_damage_morale
 from spacefleet.core.types import WeaponType
 from spacefleet.data.stance_registry import StanceRegistry
 from spacefleet.dice import DiceRoller
@@ -244,7 +245,7 @@ def resolve_battery_attack(
     # Apply hull damage + morale loss
     if total_hull_damage > 0:
         target.take_hull_damage(total_hull_damage)
-        target.apply_morale_change(-3 * total_hull_damage)
+        apply_hull_damage_morale(target, hull_damage=total_hull_damage)
         result.target_destroyed = not target.alive
 
     # Critical hits — roll 2D6 per penetrating hit
@@ -381,7 +382,7 @@ def resolve_lance_attack(
 
     if hull_damage > 0:
         target.take_hull_damage(hull_damage)
-        target.apply_morale_change(-3 * hull_damage)
+        apply_hull_damage_morale(target, hull_damage=hull_damage)
         result.target_destroyed = not target.alive
 
     # Critical hits — roll 2D6 per penetrating lance hit
