@@ -14,6 +14,7 @@ from spacefleet.core.types import (
     heading_to_vector,
     normalize_angle,
 )
+from spacefleet.models.subsystems import Subsystems
 
 if TYPE_CHECKING:
     from spacefleet.models.ship_profile import HullProfile
@@ -60,11 +61,8 @@ class Ship:
     combustion: int = 100
     combustion_max: int = 100
 
-    # ── subsystem stubs (True = operational) ──
-    subsystem_generator: bool = True
-    subsystem_deck: bool = True
-    subsystem_engines: bool = True
-    subsystem_weapons: bool = True
+    # ── subsystems ──
+    subsystems: Subsystems = field(default_factory=Subsystems)
 
     # ── critical hit state ──
     crit_speed_modifier: float = 1.0  # 0.5 if engines damaged
@@ -75,6 +73,42 @@ class Ship:
 
     # ── pending manoeuvre ──
     pending_turn: float = 0.0  # degrees remaining; positive = starboard, negative = port
+
+    # ================================================================
+    # Legacy subsystem accessors (forward to self.subsystems)
+    # ================================================================
+
+    @property
+    def subsystem_generator(self) -> bool:
+        return self.subsystems.generator
+
+    @subsystem_generator.setter
+    def subsystem_generator(self, value: bool) -> None:
+        self.subsystems.generator = value
+
+    @property
+    def subsystem_deck(self) -> bool:
+        return self.subsystems.deck
+
+    @subsystem_deck.setter
+    def subsystem_deck(self, value: bool) -> None:
+        self.subsystems.deck = value
+
+    @property
+    def subsystem_engines(self) -> bool:
+        return self.subsystems.engines
+
+    @subsystem_engines.setter
+    def subsystem_engines(self, value: bool) -> None:
+        self.subsystems.engines = value
+
+    @property
+    def subsystem_weapons(self) -> bool:
+        return self.subsystems.weapons
+
+    @subsystem_weapons.setter
+    def subsystem_weapons(self, value: bool) -> None:
+        self.subsystems.weapons = value
 
     # ================================================================
     # Derived properties
