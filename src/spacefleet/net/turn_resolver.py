@@ -23,8 +23,8 @@ from spacefleet.core.game_loop import (
     move_projectiles,
 )
 from spacefleet.core.types import Stance
-from spacefleet.models.morale import speed_cap
 from spacefleet.models.projectile import Projectile
+from spacefleet.phases.movement_phase import MoveOrder, resolve_movement_phase
 from spacefleet.spatial.geometry import distance as geo_distance
 
 if TYPE_CHECKING:
@@ -317,40 +317,55 @@ def resolve_turn(
         log.add(LightningStrikeEvent(attacker=ship, target=target, result=b_result))
 
     # ── 2. MOVEMENT SUB-PHASE ────────────────────────────────
-
-    # Morale speed penalties
-    for ship in state.alive_ships():
-        cap = speed_cap(ship.morale_state(), ship.effective_speed_max)
-        if ship.speed > cap:
-            prev_speed = ship.speed
-            ship.speed = cap
-            log.add(SpeedChangeEvent(ship=ship, old_speed=prev_speed, new_speed=cap))
-
-    # Apply speed / turn commands
-    for ship_id, cmd in sorted(commands.items()):
-        ship = state.get_ship(ship_id)
-        if not ship.alive:
+    move_orders: dict[str, MoveOrder] = {}
+    for ship_id, cmd in commands.items():
+        maybe_ship = state.ships.get(ship_id)
+        if maybe_ship is None or not maybe_ship.alive:
             continue
-
         if cmd.action == "ahead":
-            old_speed = ship.speed
-            ship.set_speed(cmd.args["speed"])
-            log.add(SpeedChangeEvent(ship=ship, old_speed=old_speed, new_speed=ship.speed))
+            move_orders[ship_id] = MoveOrder(target_speed=cmd.args["speed"])
         elif cmd.action == "stop":
-            old_speed = ship.speed
-            ship.set_speed(0.0)
-            log.add(SpeedChangeEvent(ship=ship, old_speed=old_speed, new_speed=0.0))
+            move_orders[ship_id] = MoveOrder(target_speed=0.0)
         elif cmd.action == "turn":
             degrees = cmd.args["degrees"]
             if cmd.args["direction"] == "port":
                 degrees = -degrees
-            ship.apply_turn(degrees)
+            move_orders[ship_id] = MoveOrder(
+                turn_degrees=degrees,
+                turn_direction=cmd.args["direction"],
+            )
+
+    move_events = resolve_movement_phase(
+        state.alive_ships(),
+        move_orders,
+        drift_fraction=0.5,
+    )
+    for ev in move_events:
+        ship = state.ships[ev.ship_id]
+        if ev.kind in ("morale_cap", "speed"):
+            log.add(
+                SpeedChangeEvent(
+                    ship=ship,
+                    old_speed=ev.old_speed,
+                    new_speed=ev.new_speed,
+                ),
+            )
+        elif ev.kind == "turn":
             log.add(
                 TurnOrderEvent(
                     ship=ship,
-                    direction=cmd.args["direction"],
-                    degrees=cmd.args["degrees"],
-                )
+                    direction=ev.turn_direction,
+                    degrees=ev.turn_degrees,
+                ),
+            )
+        elif ev.kind == "drift":
+            log.add(
+                DriftEvent(
+                    ship=ship,
+                    old_pos_str=repr(ship.position),
+                    heading_before=ev.heading_before,
+                    heading_after=ev.heading_after,
+                ),
             )
 
     # Projectiles advance
@@ -368,19 +383,6 @@ def resolve_turn(
         log.add(SalvoImpactEvent(proj=proj, target=target, result=result))
         if result.target_destroyed:
             _credit_kill(state, proj.attacker_id, result.target_name, log)
-
-    # Drift all alive ships
-    for ship in state.alive_ships():
-        old_pos_str = repr(ship.position)
-        h_before, h_after = ship.apply_drift(0.5)
-        log.add(
-            DriftEvent(
-                ship=ship,
-                old_pos_str=old_pos_str,
-                heading_before=h_before,
-                heading_after=h_after,
-            )
-        )
 
     # Cleanup expired projectiles
     expired = cleanup_projectiles(state.projectiles)
