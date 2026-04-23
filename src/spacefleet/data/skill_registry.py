@@ -270,6 +270,31 @@ class SkillRegistry:
             accuracy_bonus=0.0,
             cooldown_reduction=0.05,
         )
+        cls._crew_tiers[2] = CrewTierDef(
+            tier=2,
+            name="Experienced",
+            battles_required=5,
+            morale_bonus=10,
+            accuracy_bonus=0.05,
+            cooldown_reduction=0.10,
+        )
+        cls._crew_tiers[3] = CrewTierDef(
+            tier=3,
+            name="Veteran",
+            battles_required=10,
+            morale_bonus=15,
+            accuracy_bonus=0.10,
+            cooldown_reduction=0.15,
+        )
+        cls._crew_tiers[4] = CrewTierDef(
+            tier=4,
+            name="Elite",
+            battles_required=20,
+            morale_bonus=20,
+            accuracy_bonus=0.15,
+            cooldown_reduction=0.20,
+            firepower_bonus=1,
+        )
 
     @classmethod
     def _load_fallback_xp_sources(cls) -> None:

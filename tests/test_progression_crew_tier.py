@@ -32,6 +32,21 @@ def test_crew_tier_for_lookup() -> None:
     assert crew_tier_for(100) == 4  # Elite cap
 
 
+def test_crew_tier_lookup_works_without_yaml() -> None:
+    from unittest.mock import patch
+
+    from spacefleet.data import skill_registry
+
+    SkillRegistry._loaded = False
+    with patch.object(skill_registry, "YAML_AVAILABLE", False):
+        SkillRegistry.ensure_loaded()
+        assert crew_tier_for(5) == 2
+        assert crew_tier_for(100) == 4
+    # Restore normal load for subsequent tests
+    SkillRegistry._loaded = False
+    SkillRegistry.ensure_loaded()
+
+
 def test_bump_crew_veterancy_advances_tier() -> None:
     SkillRegistry._loaded = False
     SkillRegistry.ensure_loaded()
