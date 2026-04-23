@@ -7,10 +7,7 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from spacefleet.core.types import Faction
-
-# AbilityOrder is defined in spacefleet.net.commands (Task 9).  Until that
-# module exists we use Any so mypy --strict stays clean.
-AbilityOrder = Any
+    from spacefleet.net.commands import AbilityOrder
 
 
 @dataclass
