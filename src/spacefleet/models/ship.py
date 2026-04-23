@@ -176,6 +176,13 @@ class Ship:
         """Leadership accounting for bridge crits."""
         return max(1, self.hull.leadership - self.crit_leadership_penalty)
 
+    @property
+    def crew_tier(self) -> int:
+        """Per-ship crew veterancy tier, derived from ``battles_survived``."""
+        from spacefleet.commander.progression import crew_tier_for  # local import avoids cycle
+
+        return crew_tier_for(self.battles_survived)
+
     # ================================================================
     # Armor helpers
     # ================================================================
