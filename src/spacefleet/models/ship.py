@@ -71,6 +71,9 @@ class Ship:
     crit_leadership_penalty: int = 0  # cumulative from bridge hits
     crit_temporary_repairs: list = field(default_factory=list)  # type: ignore[type-arg]
 
+    # ── crew veterancy ──
+    battles_survived: int = 0
+
     # ── pending manoeuvre ──
     pending_turn: float = 0.0  # degrees remaining; positive = starboard, negative = port
 
