@@ -153,21 +153,123 @@ class SkillRegistry:
 
     @classmethod
     def _parse_active(cls, aid: str, raw: dict[str, Any]) -> AbilityDef:
-        from spacefleet.commander.abilities import AbilityDef
+        from spacefleet.commander.abilities import (
+            AbilityDef,
+            AreaHullDamage,
+            AreaMoraleDamage,
+            AreaMoraleRestore,
+            BonusBoardingAssault,
+            BonusTorpedoSalvo,
+            ConcentratedFireBuff,
+            EffectStep,
+            ExtinguishFires,
+            HullRepair,
+            RepairTempCritical,
+            SpawnProbe,
+            Teleport,
+            TimedFleetBuff,
+        )
 
         effects = dict(raw.get("effects") or {})
         is_sprint6 = bool(_SPRINT6_ABILITY_KEYS & effects.keys())
+        range_gu = float(raw["range"]) if "range" in raw else None
+        prep = int(raw.get("preparation_turns", 0))
+
+        steps: list[EffectStep] = []
+
+        # Hull repair family
+        if "hull_restore" in effects:
+            steps.append(HullRepair(amount_dice=str(effects["hull_restore"])))
+        if effects.get("extinguish_fires") is True:
+            steps.append(ExtinguishFires())
+        if "repair_temp_crit" in effects:
+            steps.append(RepairTempCritical(count=int(effects["repair_temp_crit"])))
+
+        # Morale / AoE damage
+        if "morale_restore" in effects:
+            steps.append(
+                AreaMoraleRestore(
+                    range_gu=range_gu or 0.0,
+                    amount=int(effects["morale_restore"]),
+                    cancel_mutiny=bool(effects.get("cancel_mutiny", False)),
+                )
+            )
+        if "area_damage" in effects:
+            steps.append(
+                AreaHullDamage(
+                    range_gu=float(effects.get("area_radius", range_gu or 0.0)),
+                    amount_dice=str(effects["area_damage"]),
+                    affects_allies=bool(effects.get("affects_allies", False)),
+                )
+            )
+        if "morale_damage" in effects:
+            steps.append(
+                AreaMoraleDamage(
+                    range_gu=float(effects.get("area_radius", range_gu or 0.0)),
+                    amount=int(effects["morale_damage"]),
+                    affects_allies=bool(effects.get("affects_allies", False)),
+                )
+            )
+
+        # Buffs
+        if "gunnery_column_shift" in effects:
+            steps.append(
+                ConcentratedFireBuff(
+                    range_gu=range_gu or 30.0,
+                    column_shift=int(effects["gunnery_column_shift"]),
+                    duration=int(effects.get("duration", 1)),
+                )
+            )
+        if "lance_strength_bonus" in effects or "morale_immunity" in effects:
+            data: dict[str, Any] = {}
+            if "lance_strength_bonus" in effects:
+                data["lance_strength_bonus"] = int(effects["lance_strength_bonus"])
+            if "morale_immunity" in effects:
+                data["morale_immunity"] = bool(effects["morale_immunity"])
+            steps.append(
+                TimedFleetBuff(
+                    buff_id=aid,
+                    duration=int(effects.get("duration", 1)),
+                    data=data,
+                )
+            )
+
+        # Sprint 6 stubs
+        if "bonus_torpedo_salvo" in effects:
+            steps.append(BonusTorpedoSalvo(range_gu=range_gu or 0.0))
+        if "probe_radius" in effects:
+            steps.append(
+                SpawnProbe(
+                    radius=float(effects["probe_radius"]),
+                    duration=int(effects.get("probe_duration", 0)),
+                    detection_level=int(effects.get("detection_level", 0)),
+                )
+            )
+
+        # Boarding
+        if "assault_actions" in effects:
+            steps.append(
+                BonusBoardingAssault(
+                    actions=int(effects["assault_actions"]),
+                    extended_range_gu=range_gu or 5.0,
+                )
+            )
+
+        # Micro-warp — no "effects" dict, detected by preparation_turns + id
+        if prep > 0 and not steps and aid == "micro_warp_jump":
+            steps.append(Teleport())
+
         return AbilityDef(
             id=aid,
             name=str(raw.get("name", aid)),
             category=str(raw.get("category", "universal")),
             cooldown=int(raw.get("cooldown", 0)),
             charges=int(raw.get("charges", 1)),
-            preparation_turns=int(raw.get("preparation_turns", 0)),
-            range_gu=float(raw["range"]) if "range" in raw else None,
+            preparation_turns=prep,
+            range_gu=range_gu,
             faction=str(raw.get("faction")) if raw.get("faction") else None,
             sprint6_dependency=is_sprint6,
-            steps=(),
+            steps=tuple(steps),
             raw_effects=effects,
         )
 
