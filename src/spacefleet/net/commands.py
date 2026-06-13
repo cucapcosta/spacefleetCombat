@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Any
 from spacefleet.spatial.geometry import is_in_arc
 
 if TYPE_CHECKING:
+    from spacefleet.core.types import Vector2D
     from spacefleet.models.ship import Ship
 
 
@@ -200,3 +201,17 @@ def _validate_strike(
         action="strike",
         args={"target": str(target_id), "subsystem": subsystem},
     )
+
+
+@dataclass
+class AbilityOrder:
+    """A commander ability invocation.
+
+    Separate from :class:`Command` — rides its own channel to
+    ``resolve_turn`` and does not replace a ship's move/fire order.
+    """
+
+    fleet_id: str
+    ability_id: str
+    target_ship_id: str | None = None
+    target_position: Vector2D | None = None

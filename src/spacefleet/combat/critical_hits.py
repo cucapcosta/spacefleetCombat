@@ -16,6 +16,7 @@ from spacefleet.dice import DiceRoller
 from spacefleet.dice import dice as default_dice
 
 if TYPE_CHECKING:
+    from spacefleet.core.game_state import CoreGameState
     from spacefleet.models.ship import Ship
 
 logger = logging.getLogger(__name__)
@@ -149,6 +150,7 @@ def roll_critical_hit(
     targeted_subsystem: str | None = None,
     is_temporary: bool = False,
     dice_roller: DiceRoller | None = None,
+    state: CoreGameState | None = None,
 ) -> CriticalResult:
     """Roll on the 2D6 critical hit table.
 
@@ -194,6 +196,11 @@ def roll_critical_hit(
 
     elif effect == "hull_breach":
         result.extra_damage = int(entry.get("extra_damage", 1))
+        if state is not None:
+            from spacefleet.commander.passive_skills import hull_breach_allowed
+
+            if not hull_breach_allowed(state, target):
+                result.extra_damage = 0
 
     elif effect == "fire":
         result.fires_added = int(entry.get("fires_added", entry.get("damage_per_turn", 1)))

@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING
 from spacefleet.models.morale import speed_cap
 
 if TYPE_CHECKING:
+    from spacefleet.core.game_state import CoreGameState
     from spacefleet.models.ship import Ship
 
 
@@ -44,6 +45,7 @@ def resolve_movement_phase(
     orders: dict[str, MoveOrder],
     *,
     drift_fraction: float = 0.5,
+    state: CoreGameState | None = None,
 ) -> list[MoveEvent]:
     """Apply morale caps + orders + drift; return events.
 
@@ -59,7 +61,14 @@ def resolve_movement_phase(
     for ship in ships:
         if not ship.alive:
             continue
-        cap = speed_cap(ship.morale_state(), ship.effective_speed_max)
+        speed_max = ship.effective_speed_max
+        if state is not None:
+            from spacefleet.commander.passive_skills import (
+                effective_speed_max_with_passives,
+            )
+
+            speed_max = effective_speed_max_with_passives(ship, state)
+        cap = speed_cap(ship.morale_state(), speed_max)
         if ship.speed > cap:
             prev = ship.speed
             ship.speed = cap

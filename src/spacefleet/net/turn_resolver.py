@@ -16,7 +16,8 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from spacefleet.combat.projectile_resolution import resolve_lance_ray
-from spacefleet.core.events import Event
+from spacefleet.commander.passive_skills import PassiveBus
+from spacefleet.core.events import TurnEvent as TurnEvent  # re-exported for renderers
 from spacefleet.core.game_loop import (
     apply_end_of_turn,
     check_projectile_collisions,
@@ -25,6 +26,10 @@ from spacefleet.core.game_loop import (
 )
 from spacefleet.core.types import Stance
 from spacefleet.models.projectile import Projectile
+from spacefleet.phases.command_phase import (
+    AbilityInterruptedEvent,
+    resolve_command_phase,
+)
 from spacefleet.phases.movement_phase import MoveOrder, resolve_movement_phase
 from spacefleet.spatial.geometry import distance as geo_distance
 
@@ -36,7 +41,7 @@ if TYPE_CHECKING:
     from spacefleet.combat.resolution import AttackResult
     from spacefleet.core.types import Vector2D
     from spacefleet.models.ship import Ship
-    from spacefleet.net.commands import Command
+    from spacefleet.net.commands import AbilityOrder, Command
     from spacefleet.net.game_state import GameState
 
 # ═══════════════════════════════════════════════════════════════
@@ -44,9 +49,8 @@ if TYPE_CHECKING:
 # ═══════════════════════════════════════════════════════════════
 
 
-@dataclass
-class TurnEvent(Event):
-    """Base class for all events in a turn."""
+# ``TurnEvent`` is defined in ``core.events`` (re-exported above) so phase
+# resolvers can emit turn events without importing ``net``.
 
 
 @dataclass
@@ -181,6 +185,7 @@ class TurnLog:
 def resolve_turn(
     state: GameState,
     commands: dict[str, Command],
+    ability_orders: dict[str, AbilityOrder] | None = None,
 ) -> TurnLog:
     """Resolve one full turn with simultaneous resolution.
 
@@ -202,6 +207,14 @@ def resolve_turn(
     def emit(event: TurnEvent) -> None:
         log.events.append(event)
         state.events.publish(event)
+
+    # ── 0. COMMAND SUB-PHASE ─────────────────────────────────
+    # Build the passive bus from current fleets, resolve commander
+    # abilities, then rebuild so buffs created this turn take effect.
+    state.passives = PassiveBus.build(state)
+    for cmd_ev in resolve_command_phase(state, ability_orders or {}, state.dice):
+        emit(cmd_ev)
+    state.passives = PassiveBus.build(state)
 
     # ── 1. FIRE SUB-PHASE ────────────────────────────────────
     # Sort by ship_id for deterministic ordering
@@ -246,6 +259,7 @@ def resolve_turn(
                 bearing,
                 state.enemy_ships_of(ship),
                 dice_roller=state.dice,
+                state=state,
             )
             emit(
                 LanceFireEvent(
@@ -321,6 +335,27 @@ def resolve_turn(
         apply_boarding_result(target, b_result, dice_roller=state.dice)
         emit(LightningStrikeEvent(attacker=ship, target=target, result=b_result))
 
+        # Micro-warp interruption: a boarding strike on a flagship cancels
+        # any in-preparation commander ability, restoring its spent charge.
+        boarded_fleet = state.fleet_of(target)
+        if (
+            boarded_fleet is not None
+            and boarded_fleet.commander is not None
+            and boarded_fleet.flagship_ship_id == target.id
+        ):
+            for aid, st in list(boarded_fleet.commander.ability_state.items()):
+                if st.pending_order is not None and st.preparation_turns_left > 0:
+                    st.pending_order = None
+                    st.preparation_turns_left = 0
+                    st.remaining_charges += 1
+                    emit(
+                        AbilityInterruptedEvent(
+                            ability_id=aid,
+                            fleet_id=boarded_fleet.id,
+                            reason="boarding",
+                        )
+                    )
+
     # ── 2. MOVEMENT SUB-PHASE ────────────────────────────────
     move_orders: dict[str, MoveOrder] = {}
     for ship_id, cmd in commands.items():
@@ -344,6 +379,7 @@ def resolve_turn(
         state.alive_ships(),
         move_orders,
         drift_fraction=0.5,
+        state=state,
     )
     for ev in move_events:
         ship = state.ships[ev.ship_id]
@@ -383,6 +419,7 @@ def resolve_turn(
         movements,
         state.all_ships_list(),
         state.dice,
+        state,
     )
     for proj, target, result in impacts:
         emit(SalvoImpactEvent(proj=proj, target=target, result=result))
@@ -398,13 +435,34 @@ def resolve_turn(
 
     # ── 3. END-OF-TURN SUB-PHASE ─────────────────────────────
 
+    from spacefleet.commander.passive_skills import (
+        anti_mutiny_suppressed,
+        end_of_turn_hull_regen,
+        end_of_turn_shield_regen,
+    )
+
     for ship in state.alive_ships():
+        # Anti-mutiny passive (iron_discipline): suppress mutiny near flagship.
+        if ship.morale <= 0 and anti_mutiny_suppressed(state, ship):
+            ship.morale = 1
+
         # Mutiny: shields stop regenerating
         if ship.morale <= 0:
             fire_dmg = ship.apply_fire_damage()
             shields = 0
         else:
             shields, fire_dmg = apply_end_of_turn(ship)
+            # Passive shield regen (shield_harmonics)
+            extra_shields = end_of_turn_shield_regen(state, ship)
+            if extra_shields > 0:
+                before = ship.shields_current
+                ship.shields_current = min(ship.hull.shields, ship.shields_current + extra_shields)
+                shields += ship.shields_current - before
+            # Passive hull regen when crippled (dark_blessings)
+            if ship.hull_current < ship.hull.hull_hits * 0.5:
+                extra_hull = end_of_turn_hull_regen(state, ship)
+                if extra_hull > 0:
+                    ship.hull_current = min(ship.hull.hull_hits, ship.hull_current + extra_hull)
 
         if shields > 0 or fire_dmg > 0:
             emit(EndOfTurnEvent(ship=ship, shields_regen=shields, fire_damage=fire_dmg))
@@ -463,10 +521,49 @@ def resolve_turn(
                     )
                 )
 
+    # ── 4. BATTLE-END AWARDS ─────────────────────────────────
+    if state.is_game_over() and not state.xp_awarded:
+        state.xp_awarded = True
+        _award_battle_end(state, emit)
+
     return log
 
 
 # ── Helpers ──────────────────────────────────────────────────
+
+
+def _award_battle_end(state: GameState, emit: Callable[[TurnEvent], None]) -> None:
+    """On game over: award commander XP and bump surviving crews' veterancy."""
+    from spacefleet.commander.progression import (
+        apply_xp,
+        bump_crew_veterancy,
+        compute_battle_xp_for_fleet,
+    )
+
+    alive_factions = {s.faction for s in state.ships.values() if s.alive}
+    winning_faction = next(iter(alive_factions)) if len(alive_factions) == 1 else None
+
+    candidates = [fid for fid, n in state.kills.items() if n > 0]
+    first_blood_fleet_id = min(candidates) if candidates else None
+
+    for fleet_id, fleet in state.fleets.items():
+        if fleet.commander is None:
+            continue
+        survived = bool(fleet.alive_ships_in(state))
+        won = winning_faction is not None and fleet.commander.faction == winning_faction
+        # Sprint 5 simplification: count all credited kills as escorts.
+        xp = compute_battle_xp_for_fleet(
+            fleet_kill_capitals=0,
+            fleet_kill_escorts=state.kills.get(fleet_id, 0),
+            won=won,
+            survived=survived,
+            first_blood=(fleet_id == first_blood_fleet_id),
+        )
+        for ev in apply_xp(fleet.commander, xp):
+            emit(ev)
+        for ship in fleet.alive_ships_in(state):
+            for ev in bump_crew_veterancy(ship):
+                emit(ev)
 
 
 def _credit_kill(

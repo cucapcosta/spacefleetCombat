@@ -9,11 +9,14 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+from spacefleet.commander.commander import AbilityState, Commander
 from spacefleet.core.game_state import CoreGameState
-from spacefleet.core.types import Arc, Faction, Vector2D, heading_to_vector
+from spacefleet.core.types import Arc, Faction, ShipClass, Vector2D, heading_to_vector
 from spacefleet.data import HullRegistry, WeaponRegistry
 from spacefleet.data.demo_data import HULK_HULL, make_hulk_weapons
+from spacefleet.data.skill_registry import SkillRegistry
 from spacefleet.dice import DiceRoller
+from spacefleet.models.fleet import Fleet
 from spacefleet.models.ship import Ship
 from spacefleet.models.weapon import WeaponMount
 
@@ -35,6 +38,7 @@ class GameState(CoreGameState):
     ai_ships: list[str] = field(default_factory=list)
     kills: dict[str, int] = field(default_factory=dict)
     fired_this_turn: set[str] = field(default_factory=set)
+    xp_awarded: bool = False
     _next_proj_id: int = 0
 
     # ── Multiplayer-only lookups ─────────────────────────────
@@ -145,6 +149,62 @@ def _make_default_weapons(hull_id: str) -> list[WeaponMount]:
     return []
 
 
+_CLASS_WEIGHT: dict[ShipClass, int] = {
+    ShipClass.BATTLESHIP: 5,
+    ShipClass.BATTLECRUISER: 4,
+    ShipClass.CRUISER: 3,
+    ShipClass.LIGHT_CRUISER: 2,
+    ShipClass.ESCORT: 1,
+}
+
+
+def _build_starter_commander(fleet_id: str, faction: Faction) -> Commander:
+    """A level-1 commander with a universal + faction starter loadout."""
+    active = ["concentrated_fire"]
+    passive = ["veteran_crews"]
+    if faction == Faction.IMPERIAL_NAVY:
+        active.append("boarding_assault")
+        passive.append("prow_of_the_emperor")
+    elif faction == Faction.CHAOS_FLEET:
+        active.append("mark_of_chaos")
+        passive.append("lance_mastery")
+    cmdr = Commander(
+        id=f"{fleet_id}_cmdr",
+        name=f"{fleet_id.title()} Commander",
+        faction=faction,
+        level=1,
+        active_ability_ids=list(active),
+        passive_skill_ids=list(passive),
+    )
+    for aid in active:
+        d = SkillRegistry.get_active(aid)
+        if d is not None:
+            cmdr.ability_state[aid] = AbilityState(remaining_charges=d.charges)
+    return cmdr
+
+
+def _assign_default_commander(
+    state: GameState,
+    fleet_id: str,
+    ship_ids: list[str],
+    faction: Faction,
+) -> None:
+    """Attach a starter commander to *fleet_id*, flagged on its heaviest hull."""
+    if not ship_ids:
+        return
+    ships = [state.ships[sid] for sid in ship_ids]
+    flagship = max(ships, key=lambda s: (_CLASS_WEIGHT.get(s.hull.classification, 0), s.id))
+    cmdr = _build_starter_commander(fleet_id, faction)
+    state.fleets[fleet_id] = Fleet(
+        id=fleet_id,
+        commander=cmdr,
+        flagship_ship_id=flagship.id,
+        ship_ids=list(ship_ids),
+        commander_name=cmdr.name,
+        ships=list(ships),
+    )
+
+
 def _add_imperial_fleet(
     state: GameState,
     players: list[str],
@@ -190,6 +250,10 @@ def _add_imperial_fleet(
             )
             state.ships[esc_id] = esc
             state.player_ships[player_id].append(esc_id)
+
+        _assign_default_commander(
+            state, player_id, state.player_ships[player_id], Faction.IMPERIAL_NAVY
+        )
 
 
 def _add_chaos_fleet(
@@ -240,6 +304,10 @@ def _add_chaos_fleet(
             state.ships[esc_id] = esc
             state.player_ships[player_id].append(esc_id)
 
+        _assign_default_commander(
+            state, player_id, state.player_ships[player_id], Faction.CHAOS_FLEET
+        )
+
 
 def _add_ai_hulks(
     state: GameState,
@@ -269,3 +337,11 @@ def _add_ai_hulks(
         )
         state.ships[hulk_id] = hulk
         state.ai_ships.append(hulk_id)
+        fleet_id = f"ai_{hulk_id}"
+        state.fleets[fleet_id] = Fleet(
+            id=fleet_id,
+            commander=None,
+            flagship_ship_id=None,
+            ship_ids=[hulk_id],
+            ships=[hulk],
+        )

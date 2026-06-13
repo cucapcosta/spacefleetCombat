@@ -8,6 +8,7 @@ rendering results via the display module.
 from __future__ import annotations
 
 from collections.abc import Callable
+from typing import TYPE_CHECKING
 
 from spacefleet.cli.colors import C, bold, colored, dim, health_bar
 from spacefleet.cli.display import (
@@ -43,11 +44,65 @@ from spacefleet.spatial.geometry import (
     is_in_arc,
 )
 
+if TYPE_CHECKING:
+    from spacefleet.commander.commander import Commander
+    from spacefleet.net.commands import AbilityOrder
+
 # Type alias for the target-spawning callback
 SpawnFn = Callable[[Ship, int, DiceRoller], Ship]
 
 # Counter for unique projectile IDs
 _next_projectile_id = 0
+
+
+def parse_ability_command(tokens: list[str], fleet_id: str) -> AbilityOrder | None:
+    """Parse a commander ``ability`` command into an :class:`AbilityOrder`.
+
+    Grammar::
+
+        ability <ability_id>
+        ability <ability_id> <target_ship_id>
+        ability <ability_id> at <x> <y>
+
+    *tokens* are the arguments **after** the ``ability`` keyword.  Returns
+    ``None`` for malformed input.
+    """
+    from spacefleet.core.types import Vector2D
+    from spacefleet.net.commands import AbilityOrder
+
+    if not tokens:
+        return None
+    ability_id = tokens[0]
+    if len(tokens) == 1:
+        return AbilityOrder(fleet_id=fleet_id, ability_id=ability_id)
+    if tokens[1] == "at":
+        if len(tokens) != 4:
+            return None
+        try:
+            x, y = float(tokens[2]), float(tokens[3])
+        except ValueError:
+            return None
+        return AbilityOrder(
+            fleet_id=fleet_id, ability_id=ability_id, target_position=Vector2D(x, y)
+        )
+    if len(tokens) == 2:
+        return AbilityOrder(fleet_id=fleet_id, ability_id=ability_id, target_ship_id=tokens[1])
+    return None
+
+
+def format_commander_status(commander: Commander) -> str:
+    """One-line commander summary: level, XP, and per-ability charge/cooldown."""
+    parts: list[str] = []
+    for aid in commander.active_ability_ids:
+        st = commander.ability_state.get(aid)
+        if st is None:
+            parts.append(aid)
+        elif st.cooldown_remaining > 0:
+            parts.append(f"{aid} ({st.remaining_charges}c, cd {st.cooldown_remaining})")
+        else:
+            parts.append(f"{aid} ({st.remaining_charges}c)")
+    abilities = ", ".join(parts) if parts else "none"
+    return f"Commander: Lvl {commander.level}, XP {commander.xp}, abilities: [{abilities}]"
 
 
 def _make_projectile_id() -> str:
