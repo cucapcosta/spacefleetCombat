@@ -26,6 +26,7 @@ from spacefleet.spatial.geometry import (
 )
 
 if TYPE_CHECKING:
+    from spacefleet.core.game_state import CoreGameState
     from spacefleet.models.projectile import Projectile
     from spacefleet.models.ship import Ship
     from spacefleet.models.weapon import WeaponMount
@@ -74,6 +75,7 @@ def resolve_projectile_impact(
     target: Ship,
     *,
     dice_roller: DiceRoller | None = None,
+    state: CoreGameState | None = None,
 ) -> AttackResult:
     """Resolve a battery projectile salvo hitting *target*.
 
@@ -100,6 +102,18 @@ def resolve_projectile_impact(
     fp = weapon.weapon.strength
     if projectile.distance_traveled > weapon.weapon.range * 0.5:
         fp = max(1, (fp + 1) // 2)
+
+    # ── Commander passive contributions (firepower + column shift) ──
+    column_shift = 0
+    attacker = state.ships.get(projectile.attacker_id) if state is not None else None
+    if state is not None and attacker is not None:
+        from spacefleet.commander.passive_skills import (
+            battery_firepower_bonus,
+            hit_column_shift,
+        )
+
+        fp = max(1, fp + battery_firepower_bonus(state, attacker, target, weapon))
+        column_shift = hit_column_shift(state, attacker, target, weapon)
     result.effective_firepower = fp
 
     # ── Target aspect from projectile bearing ──
@@ -108,7 +122,7 @@ def resolve_projectile_impact(
         target,
     )
     result.target_aspect = aspect_name
-    col_idx = column_index(aspect_shift=aspect_shift, stance_shift=0)
+    col_idx = column_index(aspect_shift=aspect_shift, stance_shift=column_shift)
     result.gunnery_column = GUNNERY_COLUMNS[col_idx]
 
     # ── Gunnery table lookup ──
@@ -148,7 +162,7 @@ def resolve_projectile_impact(
         for _ in range(result.penetrating_hits):
             if not target.alive:
                 break
-            crit = roll_critical_hit(target, dice_roller=dr)
+            crit = roll_critical_hit(target, dice_roller=dr, state=state)
             apply_critical_hit(target, crit)
             result.critical_hits.append(crit)
             if not target.alive:
@@ -183,6 +197,7 @@ def resolve_lance_ray(
     targets: list[Ship],
     *,
     dice_roller: DiceRoller | None = None,
+    state: CoreGameState | None = None,
 ) -> AttackResult | None:
     """Fire a lance along *bearing* and resolve against the first target hit.
 
@@ -236,10 +251,15 @@ def resolve_lance_ray(
         in_range=True,
     )
 
-    # Roll 1D6 per strength, 4+ hits
+    # Roll 1D6 per strength; threshold 4+ (lower with lance_mastery passive)
+    threshold = 4
+    if state is not None:
+        from spacefleet.commander.passive_skills import lance_hit_threshold
+
+        threshold = lance_hit_threshold(state, attacker)
     rolls = dr.roll_d6(weapon.weapon.strength)
     result.lance_rolls = rolls
-    raw_hits = sum(1 for r in rolls if r >= 4)
+    raw_hits = sum(1 for r in rolls if r >= threshold)
     result.raw_hits = raw_hits
 
     if raw_hits == 0:

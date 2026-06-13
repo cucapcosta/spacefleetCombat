@@ -209,7 +209,9 @@ def _resolve_one(
     # already consumed theirs at prep start.
     if ability_def.preparation_turns == 0:
         st.remaining_charges -= 1
-    st.cooldown_remaining = ability_def.cooldown
+    from spacefleet.commander.passive_skills import ability_cooldown_after_passives
+
+    st.cooldown_remaining = ability_cooldown_after_passives(state, flagship, ability_def.cooldown)
 
     ctx = StepContext(
         ability_id=ability_id,

@@ -259,6 +259,7 @@ def resolve_turn(
                 bearing,
                 state.enemy_ships_of(ship),
                 dice_roller=state.dice,
+                state=state,
             )
             emit(
                 LanceFireEvent(
@@ -418,6 +419,7 @@ def resolve_turn(
         movements,
         state.all_ships_list(),
         state.dice,
+        state,
     )
     for proj, target, result in impacts:
         emit(SalvoImpactEvent(proj=proj, target=target, result=result))
@@ -433,13 +435,34 @@ def resolve_turn(
 
     # ── 3. END-OF-TURN SUB-PHASE ─────────────────────────────
 
+    from spacefleet.commander.passive_skills import (
+        anti_mutiny_suppressed,
+        end_of_turn_hull_regen,
+        end_of_turn_shield_regen,
+    )
+
     for ship in state.alive_ships():
+        # Anti-mutiny passive (iron_discipline): suppress mutiny near flagship.
+        if ship.morale <= 0 and anti_mutiny_suppressed(state, ship):
+            ship.morale = 1
+
         # Mutiny: shields stop regenerating
         if ship.morale <= 0:
             fire_dmg = ship.apply_fire_damage()
             shields = 0
         else:
             shields, fire_dmg = apply_end_of_turn(ship)
+            # Passive shield regen (shield_harmonics)
+            extra_shields = end_of_turn_shield_regen(state, ship)
+            if extra_shields > 0:
+                before = ship.shields_current
+                ship.shields_current = min(ship.hull.shields, ship.shields_current + extra_shields)
+                shields += ship.shields_current - before
+            # Passive hull regen when crippled (dark_blessings)
+            if ship.hull_current < ship.hull.hull_hits * 0.5:
+                extra_hull = end_of_turn_hull_regen(state, ship)
+                if extra_hull > 0:
+                    ship.hull_current = min(ship.hull.hull_hits, ship.hull_current + extra_hull)
 
         if shields > 0 or fire_dmg > 0:
             emit(EndOfTurnEvent(ship=ship, shields_regen=shields, fire_damage=fire_dmg))

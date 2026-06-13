@@ -17,6 +17,7 @@ from spacefleet.spatial.geometry import distance, point_to_segment_distance
 
 if TYPE_CHECKING:
     from spacefleet.combat.resolution import AttackResult
+    from spacefleet.core.game_state import CoreGameState
     from spacefleet.core.types import Vector2D
     from spacefleet.dice import DiceRoller
     from spacefleet.models.projectile import Projectile
@@ -56,6 +57,7 @@ def check_projectile_collisions(
     movements: list[tuple[Projectile, Vector2D, Vector2D]],
     ships: list[Ship],
     dice_roller: DiceRoller,
+    state: CoreGameState | None = None,
 ) -> list[tuple[Projectile, Ship, AttackResult]]:
     """Check for projectile-ship collisions using line-segment sweep.
 
@@ -98,6 +100,7 @@ def check_projectile_collisions(
                 proj,
                 best_ship,
                 dice_roller=dice_roller,
+                state=state,
             )
             proj.alive = False
             impacts.append((proj, best_ship, result))
