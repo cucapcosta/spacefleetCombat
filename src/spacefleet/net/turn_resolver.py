@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from spacefleet.combat.projectile_resolution import resolve_lance_ray
-from spacefleet.core.events import Event
+from spacefleet.core.events import TurnEvent as TurnEvent  # re-exported for renderers
 from spacefleet.core.game_loop import (
     apply_end_of_turn,
     check_projectile_collisions,
@@ -44,9 +44,8 @@ if TYPE_CHECKING:
 # ═══════════════════════════════════════════════════════════════
 
 
-@dataclass
-class TurnEvent(Event):
-    """Base class for all events in a turn."""
+# ``TurnEvent`` is defined in ``core.events`` (re-exported above) so phase
+# resolvers can emit turn events without importing ``net``.
 
 
 @dataclass

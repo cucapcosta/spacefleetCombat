@@ -12,7 +12,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
-from spacefleet.core.events import Event
+from spacefleet.core.events import Event, TurnEvent
 
 if TYPE_CHECKING:
     from spacefleet.commander.commander import Commander
@@ -137,60 +137,60 @@ class AbilityDef:
 
 
 @dataclass
-class AbilityUsedEvent(Event):
+class AbilityUsedEvent(TurnEvent):
     ability_id: str
     fleet_id: str
 
 
 @dataclass
-class HullRepairedEvent(Event):
+class HullRepairedEvent(TurnEvent):
     ship_id: str
     amount: int
 
 
 @dataclass
-class FiresExtinguishedEvent(Event):
+class FiresExtinguishedEvent(TurnEvent):
     ship_id: str
     count: int
 
 
 @dataclass
-class TemporaryCritsRepairedEvent(Event):
+class TemporaryCritsRepairedEvent(TurnEvent):
     ship_id: str
     count: int
 
 
 @dataclass
-class AreaMoraleRestoreHitEvent(Event):
+class AreaMoraleRestoreHitEvent(TurnEvent):
     ship_id: str
     amount: int
 
 
 @dataclass
-class AreaMoraleHitEvent(Event):
+class AreaMoraleHitEvent(TurnEvent):
     ship_id: str
     amount: int
 
 
 @dataclass
-class AreaHullDamageHitEvent(Event):
+class AreaHullDamageHitEvent(TurnEvent):
     ship_id: str
     hull_damage: int
 
 
 @dataclass
-class BuffAppliedEvent(Event):
+class BuffAppliedEvent(TurnEvent):
     fleet_id: str
     buff_id: str
 
 
 @dataclass
-class TeleportEvent(Event):
+class TeleportEvent(TurnEvent):
     ship_id: str
 
 
 @dataclass
-class BoardingAssaultEvent(Event):
+class BoardingAssaultEvent(TurnEvent):
     attacker_id: str
     target_id: str
     crew_damage: int
@@ -198,7 +198,7 @@ class BoardingAssaultEvent(Event):
 
 
 @dataclass
-class PendingSprint6Event(Event):
+class PendingSprint6Event(TurnEvent):
     ability_id: str
     note: str = ""
 

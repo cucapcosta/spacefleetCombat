@@ -18,6 +18,16 @@ class Event:
     """Base class for all in-game events."""
 
 
+@dataclass
+class TurnEvent(Event):
+    """Base class for events produced during a resolved turn.
+
+    Lives here (not in ``net/turn_resolver``) so phase resolvers under
+    ``phases/`` and ``commander/`` can emit turn events without importing
+    the ``net`` package.
+    """
+
+
 Handler = Callable[[EventT], None]
 
 
