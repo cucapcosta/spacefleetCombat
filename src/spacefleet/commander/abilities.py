@@ -12,7 +12,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
-from spacefleet.core.events import Event, TurnEvent
+from spacefleet.core.events import TurnEvent
 
 if TYPE_CHECKING:
     from spacefleet.commander.commander import Commander
@@ -259,7 +259,7 @@ def _ships_in_radius(
     return out
 
 
-def resolve_step(step: EffectStep, ctx: StepContext) -> list[Event]:
+def resolve_step(step: EffectStep, ctx: StepContext) -> list[TurnEvent]:
     """Resolve one effect step against the current state; return events."""
     if isinstance(step, HullRepair):
         amount = _roll_dice_str(step.amount_dice, ctx.dice)
@@ -279,7 +279,7 @@ def resolve_step(step: EffectStep, ctx: StepContext) -> list[Event]:
         return [TemporaryCritsRepairedEvent(ship_id=ctx.flagship.id, count=n)]
 
     if isinstance(step, AreaMoraleRestore):
-        out: list[Event] = []
+        out: list[TurnEvent] = []
         for target in _ships_in_radius(
             ctx.state, ctx.flagship.position, step.range_gu, faction=ctx.flagship.faction
         ):
@@ -397,9 +397,9 @@ def resolve_step(step: EffectStep, ctx: StepContext) -> list[Event]:
     return []
 
 
-def resolve_ability(*, ability_def: AbilityDef, ctx: StepContext) -> list[Event]:
+def resolve_ability(*, ability_def: AbilityDef, ctx: StepContext) -> list[TurnEvent]:
     """Walk an ability's effect-step list, collecting emitted events."""
-    events: list[Event] = [AbilityUsedEvent(ability_id=ability_def.id, fleet_id=ctx.fleet.id)]
+    events: list[TurnEvent] = [AbilityUsedEvent(ability_id=ability_def.id, fleet_id=ctx.fleet.id)]
     for step in ability_def.steps:
         events.extend(resolve_step(step, ctx))
     return events

@@ -25,7 +25,6 @@ from spacefleet.data.skill_registry import SkillRegistry
 
 if TYPE_CHECKING:
     from spacefleet.commander.commander import Commander
-    from spacefleet.core.events import Event
     from spacefleet.core.game_state import CoreGameState
     from spacefleet.dice import DiceRoller
     from spacefleet.models.fleet import Fleet
@@ -63,9 +62,9 @@ def resolve_command_phase(
     state: CoreGameState,
     ability_orders: dict[str, AbilityOrder],
     dice: DiceRoller,
-) -> list[Event]:
+) -> list[TurnEvent]:
     """Resolve the command sub-phase; return events in resolution order."""
-    events: list[Event] = []
+    events: list[TurnEvent] = []
 
     # 1. Tick clocks + buffs for all commanders.
     for fleet in state.fleets.values():
@@ -127,11 +126,11 @@ def _dispatch(
     cmdr: Commander,
     order: AbilityOrder,
     dice: DiceRoller,
-) -> list[Event]:
-    events: list[Event] = []
+) -> list[TurnEvent]:
+    events: list[TurnEvent] = []
     ability_def = SkillRegistry.get_active(order.ability_id)
 
-    def reject(reason: str) -> list[Event]:
+    def reject(reason: str) -> list[TurnEvent]:
         events.append(
             AbilityRejectedEvent(ability_id=order.ability_id, fleet_id=fleet.id, reason=reason)
         )
@@ -196,7 +195,7 @@ def _resolve_one(
     ability_id: str,
     order: AbilityOrder,
     dice: DiceRoller,
-) -> list[Event]:
+) -> list[TurnEvent]:
     from spacefleet.commander.abilities import StepContext, resolve_ability
 
     ability_def = SkillRegistry.get_active(ability_id)

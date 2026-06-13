@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from spacefleet.combat.projectile_resolution import resolve_lance_ray
+from spacefleet.commander.passive_skills import PassiveBus
 from spacefleet.core.events import TurnEvent as TurnEvent  # re-exported for renderers
 from spacefleet.core.game_loop import (
     apply_end_of_turn,
@@ -25,6 +26,10 @@ from spacefleet.core.game_loop import (
 )
 from spacefleet.core.types import Stance
 from spacefleet.models.projectile import Projectile
+from spacefleet.phases.command_phase import (
+    AbilityInterruptedEvent,
+    resolve_command_phase,
+)
 from spacefleet.phases.movement_phase import MoveOrder, resolve_movement_phase
 from spacefleet.spatial.geometry import distance as geo_distance
 
@@ -36,7 +41,7 @@ if TYPE_CHECKING:
     from spacefleet.combat.resolution import AttackResult
     from spacefleet.core.types import Vector2D
     from spacefleet.models.ship import Ship
-    from spacefleet.net.commands import Command
+    from spacefleet.net.commands import AbilityOrder, Command
     from spacefleet.net.game_state import GameState
 
 # ═══════════════════════════════════════════════════════════════
@@ -180,6 +185,7 @@ class TurnLog:
 def resolve_turn(
     state: GameState,
     commands: dict[str, Command],
+    ability_orders: dict[str, AbilityOrder] | None = None,
 ) -> TurnLog:
     """Resolve one full turn with simultaneous resolution.
 
@@ -201,6 +207,14 @@ def resolve_turn(
     def emit(event: TurnEvent) -> None:
         log.events.append(event)
         state.events.publish(event)
+
+    # ── 0. COMMAND SUB-PHASE ─────────────────────────────────
+    # Build the passive bus from current fleets, resolve commander
+    # abilities, then rebuild so buffs created this turn take effect.
+    state.passives = PassiveBus.build(state)
+    for cmd_ev in resolve_command_phase(state, ability_orders or {}, state.dice):
+        emit(cmd_ev)
+    state.passives = PassiveBus.build(state)
 
     # ── 1. FIRE SUB-PHASE ────────────────────────────────────
     # Sort by ship_id for deterministic ordering
@@ -320,6 +334,27 @@ def resolve_turn(
         apply_boarding_result(target, b_result, dice_roller=state.dice)
         emit(LightningStrikeEvent(attacker=ship, target=target, result=b_result))
 
+        # Micro-warp interruption: a boarding strike on a flagship cancels
+        # any in-preparation commander ability, restoring its spent charge.
+        boarded_fleet = state.fleet_of(target)
+        if (
+            boarded_fleet is not None
+            and boarded_fleet.commander is not None
+            and boarded_fleet.flagship_ship_id == target.id
+        ):
+            for aid, st in list(boarded_fleet.commander.ability_state.items()):
+                if st.pending_order is not None and st.preparation_turns_left > 0:
+                    st.pending_order = None
+                    st.preparation_turns_left = 0
+                    st.remaining_charges += 1
+                    emit(
+                        AbilityInterruptedEvent(
+                            ability_id=aid,
+                            fleet_id=boarded_fleet.id,
+                            reason="boarding",
+                        )
+                    )
+
     # ── 2. MOVEMENT SUB-PHASE ────────────────────────────────
     move_orders: dict[str, MoveOrder] = {}
     for ship_id, cmd in commands.items():
@@ -343,6 +378,7 @@ def resolve_turn(
         state.alive_ships(),
         move_orders,
         drift_fraction=0.5,
+        state=state,
     )
     for ev in move_events:
         ship = state.ships[ev.ship_id]
