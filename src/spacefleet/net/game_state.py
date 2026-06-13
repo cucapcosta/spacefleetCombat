@@ -38,6 +38,7 @@ class GameState(CoreGameState):
     ai_ships: list[str] = field(default_factory=list)
     kills: dict[str, int] = field(default_factory=dict)
     fired_this_turn: set[str] = field(default_factory=set)
+    xp_awarded: bool = False
     _next_proj_id: int = 0
 
     # ── Multiplayer-only lookups ─────────────────────────────

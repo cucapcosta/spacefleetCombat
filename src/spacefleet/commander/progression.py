@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from spacefleet.core.events import Event
+from spacefleet.core.events import TurnEvent
 from spacefleet.data.skill_registry import SkillRegistry
 
 if TYPE_CHECKING:
@@ -22,14 +22,14 @@ MAX_CREW_TIER = 4
 
 
 @dataclass
-class XpGainedEvent(Event):
+class XpGainedEvent(TurnEvent):
     commander_id: str
     amount: int
     total_xp: int
 
 
 @dataclass
-class LevelUpEvent(Event):
+class LevelUpEvent(TurnEvent):
     commander_id: str
     new_level: int
     unlocks: tuple[str, ...]
@@ -37,15 +37,15 @@ class LevelUpEvent(Event):
 
 
 @dataclass
-class CrewTierUpEvent(Event):
+class CrewTierUpEvent(TurnEvent):
     ship_id: str
     old_tier: int
     new_tier: int
 
 
-def apply_xp(commander: Commander, amount: int) -> list[Event]:
+def apply_xp(commander: Commander, amount: int) -> list[TurnEvent]:
     """Add *amount* xp to *commander*, level up as many times as xp allows."""
-    events: list[Event] = []
+    events: list[TurnEvent] = []
     if amount <= 0:
         return events
     commander.xp += amount
@@ -82,9 +82,9 @@ def crew_tier_for(battles_survived: int) -> int:
     return min(best, MAX_CREW_TIER)
 
 
-def bump_crew_veterancy(ship: Ship) -> list[Event]:
+def bump_crew_veterancy(ship: Ship) -> list[TurnEvent]:
     """+1 battles_survived.  Emit ``CrewTierUpEvent`` if tier advanced."""
-    events: list[Event] = []
+    events: list[TurnEvent] = []
     old_tier = ship.crew_tier
     ship.battles_survived += 1
     new_tier = ship.crew_tier

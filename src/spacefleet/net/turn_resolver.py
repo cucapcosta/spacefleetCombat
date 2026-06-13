@@ -498,10 +498,49 @@ def resolve_turn(
                     )
                 )
 
+    # ── 4. BATTLE-END AWARDS ─────────────────────────────────
+    if state.is_game_over() and not state.xp_awarded:
+        state.xp_awarded = True
+        _award_battle_end(state, emit)
+
     return log
 
 
 # ── Helpers ──────────────────────────────────────────────────
+
+
+def _award_battle_end(state: GameState, emit: Callable[[TurnEvent], None]) -> None:
+    """On game over: award commander XP and bump surviving crews' veterancy."""
+    from spacefleet.commander.progression import (
+        apply_xp,
+        bump_crew_veterancy,
+        compute_battle_xp_for_fleet,
+    )
+
+    alive_factions = {s.faction for s in state.ships.values() if s.alive}
+    winning_faction = next(iter(alive_factions)) if len(alive_factions) == 1 else None
+
+    candidates = [fid for fid, n in state.kills.items() if n > 0]
+    first_blood_fleet_id = min(candidates) if candidates else None
+
+    for fleet_id, fleet in state.fleets.items():
+        if fleet.commander is None:
+            continue
+        survived = bool(fleet.alive_ships_in(state))
+        won = winning_faction is not None and fleet.commander.faction == winning_faction
+        # Sprint 5 simplification: count all credited kills as escorts.
+        xp = compute_battle_xp_for_fleet(
+            fleet_kill_capitals=0,
+            fleet_kill_escorts=state.kills.get(fleet_id, 0),
+            won=won,
+            survived=survived,
+            first_blood=(fleet_id == first_blood_fleet_id),
+        )
+        for ev in apply_xp(fleet.commander, xp):
+            emit(ev)
+        for ship in fleet.alive_ships_in(state):
+            for ev in bump_crew_veterancy(ship):
+                emit(ev)
 
 
 def _credit_kill(
