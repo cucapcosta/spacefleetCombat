@@ -93,7 +93,41 @@ class PassiveBus:
         """Build a bus from the state's fleets + ships.
 
         Handler registration for passives is delegated to helper functions
-        that subsequent tasks introduce.  The skeleton returns an empty
-        bus.
+        that subsequent tasks introduce.
         """
-        return cls()
+        bus = cls()
+        _register_morale_loss_handlers(bus, state)
+        return bus
+
+
+def _register_morale_loss_handlers(bus: PassiveBus, state: CoreGameState) -> None:
+    """Register morale-loss passive handlers for veteran_crews and morale_immunity buffs."""
+    for fleet in state.fleets.values():
+        cmdr = fleet.commander
+        if cmdr is None:
+            continue
+        if "veteran_crews" in cmdr.passive_skill_ids:
+
+            def _veteran(ctx: PassiveContext, f: Fleet = fleet) -> Any:
+                if ctx.ship is not None and ctx.ship.id in f.ship_ids:
+                    return int(ctx.value * 0.75)
+                return ctx.value
+
+            bus.register(
+                source=f"{fleet.id}:veteran_crews",
+                hook=PassiveHook.MORALE_LOSS_APPLY,
+                handler=_veteran,
+            )
+        for buff in cmdr.active_buffs:
+            if buff.data.get("morale_immunity"):
+
+                def _immunity(ctx: PassiveContext, fid: str | None = fleet.flagship_ship_id) -> Any:
+                    if fid is not None and ctx.ship is not None and ctx.ship.id == fid:
+                        return 0
+                    return ctx.value
+
+                bus.register(
+                    source=f"{fleet.id}:{buff.id}:immunity",
+                    hook=PassiveHook.MORALE_LOSS_APPLY,
+                    handler=_immunity,
+                )

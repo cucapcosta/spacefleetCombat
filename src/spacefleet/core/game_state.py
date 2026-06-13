@@ -14,6 +14,7 @@ from spacefleet.core.events import EventBus
 from spacefleet.dice import DiceRoller
 
 if TYPE_CHECKING:
+    from spacefleet.commander.passive_skills import PassiveBus
     from spacefleet.core.types import Faction
     from spacefleet.models.fleet import Fleet
     from spacefleet.models.ship import Ship
@@ -28,6 +29,7 @@ class CoreGameState:
     dice: DiceRoller = field(default_factory=DiceRoller)
     events: EventBus = field(default_factory=EventBus)
     fleets: dict[str, Fleet] = field(default_factory=dict)
+    passives: PassiveBus | None = field(default=None)
 
     def add_ship(self, ship: Ship) -> None:
         self.ships[ship.id] = ship

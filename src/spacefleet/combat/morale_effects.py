@@ -9,6 +9,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from spacefleet.core.game_state import CoreGameState
     from spacefleet.models.ship import Ship
 
 
@@ -17,22 +18,37 @@ MORALE_PER_CRIT = -5
 MORALE_PER_BOARDING_CREW_HIT = -10
 
 
-def apply_hull_damage_morale(ship: Ship, *, hull_damage: int) -> int:
+def apply_hull_damage_morale(
+    ship: Ship,
+    *,
+    hull_damage: int,
+    state: CoreGameState | None = None,
+) -> int:
     """Drop morale proportional to hull damage taken.  Returns delta."""
     if hull_damage <= 0:
         return 0
-    return ship.apply_morale_change(MORALE_PER_HULL_DAMAGE * hull_damage)
+    return ship.apply_morale_change(MORALE_PER_HULL_DAMAGE * hull_damage, state=state)
 
 
-def apply_critical_hit_morale(ship: Ship) -> int:
+def apply_critical_hit_morale(
+    ship: Ship,
+    *,
+    state: CoreGameState | None = None,
+) -> int:
     """Flat morale loss for any critical hit landed."""
-    return ship.apply_morale_change(MORALE_PER_CRIT)
+    return ship.apply_morale_change(MORALE_PER_CRIT, state=state)
 
 
-def apply_boarding_crew_morale(ship: Ship, *, crew_damage_count: int) -> int:
+def apply_boarding_crew_morale(
+    ship: Ship,
+    *,
+    crew_damage_count: int,
+    state: CoreGameState | None = None,
+) -> int:
     """Morale loss for each successful boarding crew-damage roll."""
     if crew_damage_count <= 0:
         return 0
     return ship.apply_morale_change(
         MORALE_PER_BOARDING_CREW_HIT * crew_damage_count,
+        state=state,
     )

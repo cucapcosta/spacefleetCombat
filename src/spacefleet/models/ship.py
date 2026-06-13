@@ -18,6 +18,7 @@ from spacefleet.models.stance import StanceState, can_switch
 from spacefleet.models.subsystems import Subsystems
 
 if TYPE_CHECKING:
+    from spacefleet.core.game_state import CoreGameState
     from spacefleet.models.ship_profile import HullProfile
     from spacefleet.models.weapon import WeaponMount
 
@@ -256,10 +257,28 @@ class Ship:
 
         return _ms(self.morale)
 
-    def apply_morale_change(self, delta: int) -> int:
-        """Adjust morale clamped to [0, morale_max].  Returns actual change."""
+    def apply_morale_change(self, delta: int, *, state: CoreGameState | None = None) -> int:
+        """Adjust morale clamped to [0, morale_max].  Returns actual change.
+
+        When *state* is provided and *delta* < 0, routes the loss through
+        ``PassiveHook.MORALE_LOSS_APPLY`` so passives can reduce or negate
+        the loss.  Gains and no-state calls apply raw.
+        """
+        effective_delta = delta
+        if state is not None and delta < 0:
+            from spacefleet.commander.passive_skills import (
+                PassiveContext,
+                PassiveHook,
+            )
+
+            fleet = state.fleet_of(self)
+            passives = getattr(state, "passives", None)
+            if passives is not None:
+                ctx = PassiveContext(ship=self, fleet=fleet, state=state, value=delta)
+                result = passives.dispatch(PassiveHook.MORALE_LOSS_APPLY, ctx)
+                effective_delta = int(result)
         before = self.morale
-        self.morale = max(0, min(self.morale_max, self.morale + delta))
+        self.morale = max(0, min(self.morale_max, self.morale + effective_delta))
         return self.morale - before
 
     # ================================================================
