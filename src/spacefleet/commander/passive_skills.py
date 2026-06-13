@@ -97,6 +97,7 @@ class PassiveBus:
         """
         bus = cls()
         _register_morale_loss_handlers(bus, state)
+        _register_speed_handlers(bus, state)
         return bus
 
 
@@ -131,3 +132,37 @@ def _register_morale_loss_handlers(bus: PassiveBus, state: CoreGameState) -> Non
                     hook=PassiveHook.MORALE_LOSS_APPLY,
                     handler=_immunity,
                 )
+
+
+def _register_speed_handlers(bus: PassiveBus, state: CoreGameState) -> None:
+    """Register fleet-speed-cap passive handlers (swift_maneuvers: +5)."""
+    for fleet in state.fleets.values():
+        cmdr = fleet.commander
+        if cmdr is None:
+            continue
+        if "swift_maneuvers" in cmdr.passive_skill_ids:
+
+            def _swift(ctx: PassiveContext, f: Fleet = fleet) -> Any:
+                if ctx.ship is not None and ctx.ship.id in f.ship_ids:
+                    return ctx.value + 5.0
+                return ctx.value
+
+            bus.register(
+                source=f"{fleet.id}:swift_maneuvers",
+                hook=PassiveHook.FLEET_SPEED_MAX,
+                handler=_swift,
+            )
+
+
+def effective_speed_max_with_passives(ship: Ship, state: CoreGameState) -> float:
+    """Ship's speed cap after applying FLEET_SPEED_MAX passives."""
+    passives = getattr(state, "passives", None)
+    if passives is None:
+        return ship.effective_speed_max
+    ctx = PassiveContext(
+        ship=ship,
+        fleet=state.fleet_of(ship),
+        state=state,
+        value=ship.effective_speed_max,
+    )
+    return float(passives.dispatch(PassiveHook.FLEET_SPEED_MAX, ctx))
