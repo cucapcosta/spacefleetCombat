@@ -64,3 +64,15 @@ def test_fires_when_enemy_in_arc_and_range() -> None:
     assert cmd.action == "fire"
     assert cmd.args["slot"] == atk.weapons[0].slot_id
     assert abs(cmd.args["bearing"] - 0.0) < 1.0  # bearing to due-north target
+
+
+def test_prefers_shields_down_target_in_solution() -> None:
+    atk = _ship("atk", Faction.CHAOS_FLEET, Vector2D(0, 0), heading=0.0)
+    shielded = _ship("shield", Faction.IMPERIAL_NAVY, Vector2D(0, 2))
+    exposed = _ship("exposed", Faction.IMPERIAL_NAVY, Vector2D(0, 3))
+    exposed.shields_current = 0
+    shielded.shields_current = max(1, shielded.shields_current)
+    _state(atk, shielded, exposed)
+    ai = AIController()
+    target = ai._choose_target(atk, [shielded, exposed])
+    assert target.id == "exposed"
