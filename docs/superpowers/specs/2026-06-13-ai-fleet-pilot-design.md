@@ -134,6 +134,12 @@ the **campaign gauntlet (sub-project 3) must impose a turn limit / explicit vict
 condition** rather than relying on a fleet being wiped out. Adding intercept-lead
 fire control is a deferred future enhancement.
 
+A second deferral: the AI applies stance changes as a direct in-place side effect
+(`ship.switch_stance`) at command-generation time, so no `StanceChangeEvent` is
+published on the turn log. This matches the pre-existing AI pattern and is fine for
+battle resolution, but the campaign/replay layer that wants a full event record
+should later route AI stance changes through a resolver `"switch_stance"` action.
+
 ## Quality gate
 
 `uv run ruff check src tests && uv run ruff format --check src tests &&
