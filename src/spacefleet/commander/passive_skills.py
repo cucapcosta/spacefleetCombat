@@ -104,6 +104,10 @@ class PassiveBus:
         _register_universal_passives(bus, state)
         _register_faction_passives(bus, state)
         _register_crew_tier_handlers(bus, state)
+
+        from spacefleet.commander.doctrine_effects import register_doctrine_handlers
+
+        register_doctrine_handlers(bus, state)
         return bus
 
 

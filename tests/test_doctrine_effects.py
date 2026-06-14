@@ -8,6 +8,13 @@ from spacefleet.commander.doctrine_effects import (
     apply_doctrine_to_hull,
     build_ship_with_doctrine,
 )
+from spacefleet.commander.passive_skills import (
+    PassiveBus,
+    hit_column_shift,
+    lance_hit_threshold,
+)
+from spacefleet.core.game_state import CoreGameState
+from spacefleet.core.types import Faction, Vector2D
 from spacefleet.data.demo_data import HULK_HULL, make_hulk_weapons
 from spacefleet.data.doctrine_registry import DoctrineRegistry
 from spacefleet.models.ship import Ship
@@ -58,3 +65,34 @@ def test_build_ship_applies_doctrine() -> None:
 def test_build_ship_none_doctrine_is_plain() -> None:
     ship = build_ship_with_doctrine("s", "S", HULK_HULL, make_hulk_weapons(), doctrine_id=None)
     assert ship.doctrine_id is None and ship.morale_floor == 0
+
+
+def _state_with_doctrine(doctrine_id: str, faction: Faction) -> tuple[CoreGameState, Ship, Ship]:
+    state = CoreGameState()
+    ship = build_ship_with_doctrine(
+        "s",
+        "S",
+        HULK_HULL,
+        make_hulk_weapons(),
+        doctrine_id=doctrine_id,
+        position=Vector2D(0, 0),
+    )
+    ship.faction = faction
+    enemy = Ship.from_profile("e", "E", HULK_HULL, make_hulk_weapons(), position=Vector2D(2, 0))
+    enemy.faction = (
+        Faction.CHAOS_FLEET if faction == Faction.IMPERIAL_NAVY else Faction.IMPERIAL_NAVY
+    )
+    state.add_ship(ship)
+    state.add_ship(enemy)
+    state.passives = PassiveBus.build(state)
+    return state, ship, enemy
+
+
+def test_navy_gunnery_column_shift() -> None:
+    state, ship, enemy = _state_with_doctrine("navy_gunnery_school", Faction.IMPERIAL_NAVY)
+    assert hit_column_shift(state, ship, enemy, ship.weapons[0]) == 1
+
+
+def test_tzeentch_lance_threshold() -> None:
+    state, ship, _ = _state_with_doctrine("mark_of_tzeentch", Faction.CHAOS_FLEET)
+    assert lance_hit_threshold(state, ship) == 3
