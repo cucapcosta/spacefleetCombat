@@ -7,6 +7,7 @@ import dataclasses
 from spacefleet.commander.doctrine_effects import (
     apply_doctrine_to_hull,
     build_ship_with_doctrine,
+    doctrine_allows_weapon,
 )
 from spacefleet.commander.passive_skills import (
     PassiveBus,
@@ -16,8 +17,9 @@ from spacefleet.commander.passive_skills import (
 )
 from spacefleet.core.game_state import CoreGameState
 from spacefleet.core.types import Faction, Vector2D
-from spacefleet.data.demo_data import HULK_HULL, make_hulk_weapons
+from spacefleet.data.demo_data import HULK_HULL, SALVAGE_GUN, make_hulk_weapons
 from spacefleet.data.doctrine_registry import DoctrineRegistry
+from spacefleet.data.weapon_registry import WeaponRegistry
 from spacefleet.models.ship import Ship
 
 
@@ -107,3 +109,19 @@ def test_space_marine_assault_bonus() -> None:
 def test_khorne_assault_bonus() -> None:
     state, ship, _ = _state_with_doctrine("mark_of_khorne", Faction.CHAOS_FLEET)
     assert assault_action_bonus(state, ship) == 3
+
+
+def test_khorne_bans_lances() -> None:
+    khorne = DoctrineRegistry.get("mark_of_khorne")
+    # SALVAGE_GUN is a BATTERY → allowed.
+    assert doctrine_allows_weapon(khorne, SALVAGE_GUN) is True
+    # Find any lance in the weapon catalog → banned.
+    lances = [w for w in WeaponRegistry.all().values() if w.weapon_type.value == "lance"]
+    assert lances, "expected at least one lance in the catalog"
+    assert doctrine_allows_weapon(khorne, lances[0]) is False
+
+
+def test_non_khorne_allows_lances() -> None:
+    tzeentch = DoctrineRegistry.get("mark_of_tzeentch")
+    lances = [w for w in WeaponRegistry.all().values() if w.weapon_type.value == "lance"]
+    assert doctrine_allows_weapon(tzeentch, lances[0]) is True
