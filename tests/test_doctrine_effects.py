@@ -125,3 +125,40 @@ def test_non_khorne_allows_lances() -> None:
     tzeentch = DoctrineRegistry.get("mark_of_tzeentch")
     lances = [w for w in WeaponRegistry.all().values() if w.weapon_type.value == "lance"]
     assert doctrine_allows_weapon(tzeentch, lances[0]) is True
+
+
+def test_cross_ship_doctrine_isolation() -> None:
+    # Two differently-doctrined imperial ships share one state; per-ship
+    # handlers must not leak between them.
+    state = CoreGameState()
+    gunnery_ship = build_ship_with_doctrine(
+        "g",
+        "G",
+        HULK_HULL,
+        make_hulk_weapons(),
+        doctrine_id="navy_gunnery_school",
+        position=Vector2D(0, 0),
+    )
+    gunnery_ship.faction = Faction.IMPERIAL_NAVY
+    marine_ship = build_ship_with_doctrine(
+        "m",
+        "M",
+        HULK_HULL,
+        make_hulk_weapons(),
+        doctrine_id="space_marine_detachment",
+        position=Vector2D(1, 0),
+    )
+    marine_ship.faction = Faction.IMPERIAL_NAVY
+    enemy = Ship.from_profile("e", "E", HULK_HULL, make_hulk_weapons(), position=Vector2D(2, 0))
+    enemy.faction = Faction.CHAOS_FLEET
+    state.add_ship(gunnery_ship)
+    state.add_ship(marine_ship)
+    state.add_ship(enemy)
+    state.passives = PassiveBus.build(state)
+
+    # Column shift applies only to the gunnery ship.
+    assert hit_column_shift(state, gunnery_ship, enemy, gunnery_ship.weapons[0]) == 1
+    assert hit_column_shift(state, marine_ship, enemy, marine_ship.weapons[0]) == 0
+    # Assault bonus applies only to the marine ship.
+    assert assault_action_bonus(state, marine_ship) == 2
+    assert assault_action_bonus(state, gunnery_ship) == 0

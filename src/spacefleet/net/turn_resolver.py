@@ -318,6 +318,9 @@ def resolve_turn(
         # Doctrine boarding immunity (e.g. Space Marine Detachment)
         from spacefleet.data.doctrine_registry import DoctrineRegistry
 
+        # Deliberate direct registry lookup (not a PassiveBus hook): boarding
+        # immunity is a static doctrine property with no current need to be
+        # overridable.
         t_doc = DoctrineRegistry.get_or_none(target.doctrine_id)
         if t_doc is not None and t_doc.board_immune:
             from spacefleet.commander.doctrine_effects import (

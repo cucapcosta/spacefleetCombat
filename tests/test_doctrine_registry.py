@@ -42,3 +42,15 @@ def test_effect_fields() -> None:
     assert DoctrineRegistry.get("commissariat").morale_floor == 20
     assert DoctrineRegistry.get("navy_gunnery_school").column_shift == 1
     assert DoctrineRegistry.get("mechanicus_rites").upgrade_slot_bonus == 1
+
+
+def test_fallback_loads_without_yaml(monkeypatch) -> None:
+    import spacefleet.data.doctrine_registry as dr
+
+    monkeypatch.setattr(dr, "YAML_AVAILABLE", False)
+    dr.DoctrineRegistry.reset()
+    items = dr.DoctrineRegistry.all()
+    assert len(items) == 8
+    assert items["mark_of_khorne"].assault_bonus == 3
+    assert items["commissariat"].morale_floor == 20
+    dr.DoctrineRegistry.reset()  # restore for other tests
