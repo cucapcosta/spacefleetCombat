@@ -76,7 +76,7 @@ class AIController:
         a shields-down target.  Deterministic tie-break by id."""
         in_solution = [e for e in enemies if self._firing_solution(ship, e) is not None]
         exposed = [e for e in in_solution if e.shields_current == 0]
-        pool = exposed or enemies
+        pool = exposed or in_solution or enemies
         return min(pool, key=lambda e: (distance(ship.position, e.position), e.id))
 
     def _firing_solution(self, ship: Ship, target: Ship) -> WeaponMount | None:
@@ -87,7 +87,7 @@ class AIController:
         candidates = [
             w
             for w in ship.weapons
-            if dist <= w.weapon.range and is_in_arc(ship.heading, bearing, w.arc)
+            if w.can_fire and dist <= w.weapon.range and is_in_arc(ship.heading, bearing, w.arc)
         ]
         if not candidates:
             return None

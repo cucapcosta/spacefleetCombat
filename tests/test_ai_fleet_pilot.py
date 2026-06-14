@@ -74,10 +74,39 @@ def test_prefers_shields_down_target_in_solution() -> None:
     exposed = _ship("exposed", Faction.IMPERIAL_NAVY, Vector2D(0, 3))
     exposed.shields_current = 0
     shielded.shields_current = max(1, shielded.shields_current)
-    _state(atk, shielded, exposed)
     ai = AIController()
     target = ai._choose_target(atk, [shielded, exposed])
     assert target.id == "exposed"
+
+
+def test_skips_disabled_weapon() -> None:
+    # A weapon crit set can_fire=False; _validate_fire would reject firing it, so
+    # the AI must not treat it as a firing solution. Enemy dead ahead, in range.
+    atk = _ship("atk", Faction.CHAOS_FLEET, Vector2D(0, 0), heading=0.0)
+    atk.weapons[0].can_fire = False
+    enemy = _ship("e", Faction.IMPERIAL_NAVY, Vector2D(0, 3))
+    state = _state(atk, enemy)
+    ai = AIController()
+    assert ai._firing_solution(atk, enemy) is None
+    cmd = ai.generate_commands(state, controlled_ids=["atk"])["atk"]
+    assert cmd.action != "fire"
+
+
+def test_choose_target_falls_back_to_in_solution_tier() -> None:
+    # Two enemies in firing solution (prow, in range) but shields up, plus a
+    # nearest enemy out of arc (not in solution). Target must be in-solution,
+    # never the closer out-of-solution one.
+    atk = _ship("atk", Faction.CHAOS_FLEET, Vector2D(0, 0), heading=0.0)
+    sol_a = _ship("sol_a", Faction.IMPERIAL_NAVY, Vector2D(0, 3))
+    sol_b = _ship("sol_b", Faction.IMPERIAL_NAVY, Vector2D(0, 4))
+    sol_a.shields_current = max(1, sol_a.shields_current)
+    sol_b.shields_current = max(1, sol_b.shields_current)
+    # Nearest enemy, but off the starboard beam (out of the PROW arc).
+    out = _ship("out", Faction.IMPERIAL_NAVY, Vector2D(1, 0))
+    ai = AIController()
+    assert ai._firing_solution(atk, out) is None
+    target = ai._choose_target(atk, [sol_a, sol_b, out])
+    assert target.id in {"sol_a", "sol_b"}
 
 
 def test_turns_toward_enemy_outside_arc() -> None:
