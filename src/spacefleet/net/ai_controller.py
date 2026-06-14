@@ -11,7 +11,12 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from spacefleet.net.commands import Command
-from spacefleet.spatial.geometry import bearing_from_to, distance, is_in_arc
+from spacefleet.spatial.geometry import (
+    bearing_from_to,
+    distance,
+    is_in_arc,
+    relative_bearing,
+)
 
 if TYPE_CHECKING:
     from spacefleet.models.ship import Ship
@@ -61,7 +66,7 @@ class AIController:
                 action="fire",
                 args={"slot": weapon.slot_id, "bearing": bearing},
             )
-        return Command(ship_id=ship.id, action="pass")  # maneuver added in Task 4
+        return self._maneuver(ship, target)
 
     def _choose_target(self, ship: Ship, enemies: list[Ship]) -> Ship:
         """Nearest alive enemy; among those in a firing solution, prefer
@@ -84,6 +89,32 @@ class AIController:
         if not candidates:
             return None
         return max(candidates, key=lambda w: w.weapon.strength)
+
+    def _maneuver(self, ship: Ship, target: Ship) -> Command:
+        bearing = bearing_from_to(ship.position, target.position)
+        best_range = max(w.weapon.range for w in ship.weapons)
+        # Use the widest-arc weapon to decide "is the target roughly ahead?"
+        any_in_arc = any(is_in_arc(ship.heading, bearing, w.arc) for w in ship.weapons)
+
+        if not any_in_arc:
+            rel = relative_bearing(ship.heading, bearing)  # + = starboard, - = port
+            turn_cap = ship.effective_turn_rate
+            degrees = min(abs(rel), turn_cap)
+            if degrees <= 0.0:
+                return Command(ship_id=ship.id, action="stop")
+            direction = "starboard" if rel > 0 else "port"
+            return Command(
+                ship_id=ship.id,
+                action="turn",
+                args={"direction": direction, "degrees": degrees},
+            )
+
+        dist = distance(ship.position, target.position)
+        if dist > best_range * ENGAGE_RANGE_FRACTION:
+            speed = ship.effective_speed_max
+            return Command(ship_id=ship.id, action="ahead", args={"speed": speed})
+
+        return Command(ship_id=ship.id, action="stop")
 
     def _manage_stance(self, ship: Ship, target: Ship) -> None:
         """Free stance side effect (filled in Task 5)."""

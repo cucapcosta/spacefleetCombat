@@ -76,3 +76,24 @@ def test_prefers_shields_down_target_in_solution() -> None:
     ai = AIController()
     target = ai._choose_target(atk, [shielded, exposed])
     assert target.id == "exposed"
+
+
+def test_turns_toward_enemy_outside_arc() -> None:
+    # Enemy off the starboard side (east), ship facing north → must turn starboard.
+    atk = _ship("atk", Faction.CHAOS_FLEET, Vector2D(0, 0), heading=0.0)
+    enemy = _ship("e", Faction.IMPERIAL_NAVY, Vector2D(50, 0))
+    state = _state(atk, enemy)
+    cmd = AIController().generate_commands(state, controlled_ids=["atk"])["atk"]
+    assert cmd.action == "turn"
+    assert cmd.args["direction"] == "starboard"
+    assert cmd.args["degrees"] > 0
+
+
+def test_closes_distance_when_far_and_ahead() -> None:
+    # Enemy far but dead ahead (in arc, out of range) → accelerate.
+    atk = _ship("atk", Faction.CHAOS_FLEET, Vector2D(0, 0), heading=0.0)
+    enemy = _ship("e", Faction.IMPERIAL_NAVY, Vector2D(0, 500))
+    state = _state(atk, enemy)
+    cmd = AIController().generate_commands(state, controlled_ids=["atk"])["atk"]
+    assert cmd.action == "ahead"
+    assert cmd.args["speed"] > 0
