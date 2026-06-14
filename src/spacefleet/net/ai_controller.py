@@ -26,6 +26,8 @@ if TYPE_CHECKING:
 
 # Engage at ~60% of the ship's best weapon range.
 ENGAGE_RANGE_FRACTION = 0.6
+# Half-angle of the fixed "target is ahead" prow cone used for maneuvering.
+PROW_CONE_DEGREES = 45.0
 # Brace when hull drops below this fraction of max.
 BRACE_HULL_FRACTION = 0.4
 
@@ -94,11 +96,13 @@ class AIController:
     def _maneuver(self, ship: Ship, target: Ship) -> Command:
         bearing = bearing_from_to(ship.position, target.position)
         best_range = max(w.weapon.range for w in ship.weapons)
-        # Use the widest-arc weapon to decide "is the target roughly ahead?"
-        any_in_arc = any(is_in_arc(ship.heading, bearing, w.arc) for w in ship.weapons)
+        # Decide "is the target roughly ahead?" by a fixed ±45° PROW cone around
+        # the ship's heading, independent of weapon arcs — broadside ships must
+        # still turn toward the enemy to close, even though their guns bear.
+        rel = relative_bearing(ship.heading, bearing)  # + = starboard, - = port
+        ahead = abs(rel) <= PROW_CONE_DEGREES
 
-        if not any_in_arc:
-            rel = relative_bearing(ship.heading, bearing)  # + = starboard, - = port
+        if not ahead:
             turn_cap = ship.effective_turn_rate
             degrees = min(abs(rel), turn_cap)
             if degrees <= 0.0:
