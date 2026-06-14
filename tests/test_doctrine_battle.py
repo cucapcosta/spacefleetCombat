@@ -8,6 +8,7 @@ from spacefleet.commander.doctrine_effects import (
     BoardingRepelledByDoctrineEvent,
     build_ship_with_doctrine,
 )
+from spacefleet.commander.passive_skills import PassiveBus, anti_mutiny_suppressed
 from spacefleet.core.types import Faction, Vector2D
 from spacefleet.data.demo_data import HULK_HULL, make_hulk_weapons
 from spacefleet.models.ship import Ship
@@ -42,3 +43,26 @@ def test_space_marine_repels_boarding() -> None:
 
     assert any(isinstance(e, BoardingRepelledByDoctrineEvent) for e in log.events)
     assert target.morale == target.morale_max  # took no boarding morale damage
+
+
+def test_commissariat_holds_morale_floor() -> None:
+    state = GameState()
+    ship = build_ship_with_doctrine(
+        "comm",
+        "Commissar",
+        HULK_HULL,
+        make_hulk_weapons(),
+        doctrine_id="commissariat",
+        position=Vector2D(0, 0),
+    )
+    ship.faction = Faction.IMPERIAL_NAVY
+    state.add_ship(ship)
+    state.passives = PassiveBus.build(state)
+
+    # Hammer morale far below the floor via the doctrine-aware path.
+    ship.apply_morale_change(-1000, state=state)
+    assert ship.morale == 20  # floor held
+
+    # And it never mutinies at end-of-turn (anti-mutiny doctrine handler).
+    ship.morale = 0  # force the mutiny gate
+    assert anti_mutiny_suppressed(state, ship) is True
