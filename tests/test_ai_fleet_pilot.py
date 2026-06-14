@@ -52,3 +52,15 @@ def test_default_controls_ai_ships() -> None:
     ai = AIController()
     cmds = ai.generate_commands(state)
     assert set(cmds.keys()) == {"ai_hulk_1"}
+
+
+def test_fires_when_enemy_in_arc_and_range() -> None:
+    # Hulk weapons fire forward (prow); enemy dead ahead (north = heading 0).
+    atk = _ship("atk", Faction.CHAOS_FLEET, Vector2D(0, 0), heading=0.0)
+    enemy = _ship("e", Faction.IMPERIAL_NAVY, Vector2D(0, 3))
+    state = _state(atk, enemy)
+    ai = AIController()
+    cmd = ai.generate_commands(state, controlled_ids=["atk"])["atk"]
+    assert cmd.action == "fire"
+    assert cmd.args["slot"] == atk.weapons[0].slot_id
+    assert abs(cmd.args["bearing"] - 0.0) < 1.0  # bearing to due-north target

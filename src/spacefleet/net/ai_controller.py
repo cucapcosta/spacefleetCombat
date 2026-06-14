@@ -50,7 +50,18 @@ class AIController:
         enemies = [e for e in state.enemy_ships_of(ship) if e.alive]
         if not enemies:
             return Command(ship_id=ship.id, action="pass")
-        return Command(ship_id=ship.id, action="pass")  # decision logic added in later tasks
+        target = self._choose_target(ship, enemies)
+        self._manage_stance(ship, target)
+
+        weapon = self._firing_solution(ship, target)
+        if weapon is not None and (self.fire_chance >= 1.0 or state.dice.chance(self.fire_chance)):
+            bearing = bearing_from_to(ship.position, target.position)
+            return Command(
+                ship_id=ship.id,
+                action="fire",
+                args={"slot": weapon.slot_id, "bearing": bearing},
+            )
+        return Command(ship_id=ship.id, action="pass")  # maneuver added in Task 4
 
     def _choose_target(self, ship: Ship, enemies: list[Ship]) -> Ship:
         """Nearest alive enemy; among those in a firing solution, prefer
