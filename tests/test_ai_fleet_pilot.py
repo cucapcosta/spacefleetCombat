@@ -11,6 +11,8 @@ from spacefleet.models.ship import Ship
 from spacefleet.models.weapon import WeaponMount
 from spacefleet.net.ai_controller import AIController
 from spacefleet.net.game_state import GameState
+from spacefleet.net.turn_resolver import SalvoImpactEvent, resolve_turn
+from spacefleet.spatial.geometry import distance
 
 # The HULK hull is immobile (speed/turn_rate 0) with a wide DORSAL gun — useless
 # for testing maneuver/arc logic. Build a mobile ship with a narrow PROW weapon.
@@ -114,3 +116,37 @@ def test_locks_on_when_engaging_healthy() -> None:
     state = _state(atk, enemy)
     AIController().generate_commands(state, controlled_ids=["atk"])
     assert atk.stance == Stance.LOCK_ON
+
+
+def _sep(state: GameState) -> float:
+    """Distance between the two fleet flagships (imp[0] vs cha[0])."""
+    imp = state.ships[state.player_ships["imp"][0]]
+    cha = state.ships[state.player_ships["cha"][0]]
+    return distance(imp.position, cha.position)
+
+
+# Integration smoke for the greedy AI-vs-AI battle. The greedy pilot fires the
+# best-bearing weapon at the nearest enemy but does not lead its shots, so it
+# can't reliably hit a maneuvering target — a battle may run for many turns
+# without producing fleet casualties unless both sides close to point-blank.
+# We therefore assert the AI *converges* (fleets close distance) and that it
+# *fires live ordnance that resolves* (a SalvoImpactEvent occurs), rather than
+# asserting fleet-on-fleet kills.
+def test_ai_fleet_drives_battle_forward() -> None:
+    state = GameState.create_mixed(["imp"], ["cha"], ships_per_player=2, seed=7)
+    ai = AIController()
+    start_sep = _sep(state)
+    impacts = 0
+    for _ in range(12):
+        alive = [sid for sid, ship in state.ships.items() if ship.alive]
+        cmds = ai.generate_commands(state, controlled_ids=alive)
+        log = resolve_turn(state, cmds)
+        impacts += sum(1 for e in log.events if isinstance(e, SalvoImpactEvent))
+        if state.is_game_over():
+            break
+
+    # 1. Maneuver works: the two flagships converge over the run.
+    assert _sep(state) < start_sep
+    # 2. Combat is live (no mechanical stalemate): the AI fires and projectiles
+    #    resolve to impact at least once.
+    assert impacts >= 1
