@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from spacefleet.core.types import Stance
 from spacefleet.net.commands import Command
 from spacefleet.spatial.geometry import (
     bearing_from_to,
@@ -117,4 +118,14 @@ class AIController:
         return Command(ship_id=ship.id, action="stop")
 
     def _manage_stance(self, ship: Ship, target: Ship) -> None:
-        """Free stance side effect (filled in Task 5)."""
+        if ship.stance_cooldown_remaining > 0:
+            return
+        crippled = ship.hull_current < BRACE_HULL_FRACTION * ship.hull.hull_hits
+        if crippled:
+            if ship.stance != Stance.BRACE_FOR_IMPACT:
+                ship.switch_stance(Stance.BRACE_FOR_IMPACT)
+            return
+        best_range = max(w.weapon.range for w in ship.weapons)
+        in_range = distance(ship.position, target.position) <= best_range
+        if in_range and ship.stance != Stance.LOCK_ON:
+            ship.switch_stance(Stance.LOCK_ON)

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import dataclasses
 
-from spacefleet.core.types import Arc, Faction, Vector2D
+from spacefleet.core.types import Arc, Faction, Stance, Vector2D
 from spacefleet.data.demo_data import HULK_HULL, SALVAGE_GUN
 from spacefleet.dice import DiceRoller
 from spacefleet.models.ship import Ship
@@ -97,3 +97,20 @@ def test_closes_distance_when_far_and_ahead() -> None:
     cmd = AIController().generate_commands(state, controlled_ids=["atk"])["atk"]
     assert cmd.action == "ahead"
     assert cmd.args["speed"] > 0
+
+
+def test_braces_when_crippled() -> None:
+    atk = _ship("atk", Faction.CHAOS_FLEET, Vector2D(0, 0), heading=0.0)
+    atk.hull_current = 1  # well below 40% of max
+    enemy = _ship("e", Faction.IMPERIAL_NAVY, Vector2D(0, 3))
+    state = _state(atk, enemy)
+    AIController().generate_commands(state, controlled_ids=["atk"])
+    assert atk.stance == Stance.BRACE_FOR_IMPACT
+
+
+def test_locks_on_when_engaging_healthy() -> None:
+    atk = _ship("atk", Faction.CHAOS_FLEET, Vector2D(0, 0), heading=0.0)
+    enemy = _ship("e", Faction.IMPERIAL_NAVY, Vector2D(0, 3))  # within best range
+    state = _state(atk, enemy)
+    AIController().generate_commands(state, controlled_ids=["atk"])
+    assert atk.stance == Stance.LOCK_ON
