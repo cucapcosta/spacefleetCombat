@@ -104,6 +104,10 @@ class PassiveBus:
         _register_universal_passives(bus, state)
         _register_faction_passives(bus, state)
         _register_crew_tier_handlers(bus, state)
+
+        from spacefleet.commander.doctrine_effects import register_doctrine_handlers
+
+        register_doctrine_handlers(bus, state)
         return bus
 
 
@@ -525,6 +529,14 @@ def anti_mutiny_suppressed(state: CoreGameState, ship: Ship) -> bool:
         return False
     ctx = PassiveContext(ship=ship, fleet=state.fleet_of(ship), state=state, value=None)
     return passives.dispatch(PassiveHook.ANTI_MUTINY_CHECK, ctx) is True
+
+
+def assault_action_bonus(state: CoreGameState, ship: Ship) -> int:
+    passives = getattr(state, "passives", None)
+    if passives is None:
+        return 0
+    ctx = PassiveContext(ship=ship, fleet=state.fleet_of(ship), state=state, value=0)
+    return int(passives.dispatch(PassiveHook.ASSAULT_ACTION_BONUS, ctx))
 
 
 def ability_cooldown_after_passives(

@@ -75,6 +75,10 @@ class Ship:
     # ── crew veterancy ──
     battles_survived: int = 0
 
+    # ── doctrine ──
+    doctrine_id: str | None = None
+    morale_floor: int = 0
+
     # ── pending manoeuvre ──
     pending_turn: float = 0.0  # degrees remaining; positive = starboard, negative = port
 
@@ -278,7 +282,7 @@ class Ship:
                 result = passives.dispatch(PassiveHook.MORALE_LOSS_APPLY, ctx)
                 effective_delta = int(result)
         before = self.morale
-        self.morale = max(0, min(self.morale_max, self.morale + effective_delta))
+        self.morale = max(self.morale_floor, min(self.morale_max, self.morale + effective_delta))
         return self.morale - before
 
     # ================================================================
@@ -493,6 +497,8 @@ class Ship:
         position: Vector2D | None = None,
         heading: float = 0.0,
         speed: float = 0.0,
+        doctrine_id: str | None = None,
+        morale_floor: int = 0,
     ) -> Ship:
         """Create a combat-ready ship from a hull profile + weapon loadout."""
         return cls(
@@ -508,6 +514,8 @@ class Ship:
             weapons=list(weapons),
             morale=hull.base_morale,
             morale_max=hull.base_morale,
+            doctrine_id=doctrine_id,
+            morale_floor=morale_floor,
         )
 
     def __repr__(self) -> str:
