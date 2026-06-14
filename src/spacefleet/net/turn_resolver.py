@@ -315,6 +315,17 @@ def resolve_turn(
         # Shields must be down
         if target.shields_current > 0:
             continue
+        # Doctrine boarding immunity (e.g. Space Marine Detachment)
+        from spacefleet.data.doctrine_registry import DoctrineRegistry
+
+        t_doc = DoctrineRegistry.get_or_none(target.doctrine_id)
+        if t_doc is not None and t_doc.board_immune:
+            from spacefleet.commander.doctrine_effects import (
+                BoardingRepelledByDoctrineEvent,
+            )
+
+            emit(BoardingRepelledByDoctrineEvent(attacker_id=ship.id, target_id=target.id))
+            continue
         # Resolve boarding
         from spacefleet.combat.boarding import (
             apply_boarding_result,
