@@ -10,6 +10,7 @@ from spacefleet.commander.doctrine_effects import (
 )
 from spacefleet.commander.passive_skills import (
     PassiveBus,
+    assault_action_bonus,
     hit_column_shift,
     lance_hit_threshold,
 )
@@ -96,3 +97,13 @@ def test_navy_gunnery_column_shift() -> None:
 def test_tzeentch_lance_threshold() -> None:
     state, ship, _ = _state_with_doctrine("mark_of_tzeentch", Faction.CHAOS_FLEET)
     assert lance_hit_threshold(state, ship) == 3
+
+
+def test_space_marine_assault_bonus() -> None:
+    state, ship, _ = _state_with_doctrine("space_marine_detachment", Faction.IMPERIAL_NAVY)
+    assert assault_action_bonus(state, ship) == 2
+
+
+def test_khorne_assault_bonus() -> None:
+    state, ship, _ = _state_with_doctrine("mark_of_khorne", Faction.CHAOS_FLEET)
+    assert assault_action_bonus(state, ship) == 3

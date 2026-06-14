@@ -320,8 +320,9 @@ def resolve_turn(
             apply_boarding_result,
             resolve_boarding,
         )
+        from spacefleet.commander.passive_skills import assault_action_bonus
 
-        assault_actions = ship.hull.assault_actions
+        assault_actions = ship.hull.assault_actions + assault_action_bonus(state, ship)
         if assault_actions <= 0:
             continue
         subsys = cmd.args.get("subsystem")

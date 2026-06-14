@@ -531,6 +531,14 @@ def anti_mutiny_suppressed(state: CoreGameState, ship: Ship) -> bool:
     return passives.dispatch(PassiveHook.ANTI_MUTINY_CHECK, ctx) is True
 
 
+def assault_action_bonus(state: CoreGameState, ship: Ship) -> int:
+    passives = getattr(state, "passives", None)
+    if passives is None:
+        return 0
+    ctx = PassiveContext(ship=ship, fleet=state.fleet_of(ship), state=state, value=0)
+    return int(passives.dispatch(PassiveHook.ASSAULT_ACTION_BONUS, ctx))
+
+
 def ability_cooldown_after_passives(
     state: CoreGameState, flagship: Ship, base_cooldown: int
 ) -> int:
