@@ -76,9 +76,12 @@ For each alive controlled ship, in order:
    the target. Gated by `fire_chance` (default 1.0 → always when a solution
    exists).
 5. **Maneuver** when there is no firing solution:
-   - If the target is **outside the firing arc** of the ship's best weapon →
+   - If the target is **outside a fixed ±45° prow cone** of the ship's heading →
      `turn` toward the target's bearing. Direction = shortest angular side;
-     `degrees` = min(angular delta, ship's max turn for the turn).
+     `degrees` = min(angular delta, ship's max turn for the turn). (The prow cone,
+     not the weapon arcs, decides "nose roughly at the enemy": broadside ships
+     cover ~360° of arc, so an arc-based test would never turn them and they would
+     never close. Firing still uses the real per-weapon arcs.)
    - Else if the target is **too far** (distance > preferred engagement range,
      defined as `0.6 * best_weapon_range`) → `ahead` toward a speed that closes
      distance, capped at `ship.effective_speed_max` (and never below current
@@ -114,9 +117,28 @@ geometry is pure.
   fires at the unshielded one.
 - **controlled_ids respected:** only ships in the passed set get Commands;
   default falls back to `state.ai_ships`.
-- **integration smoke:** build a `create_mixed` battle, drive the chaos fleet
-  with the AI for N turns via `resolve_turn`, assert ships close distance and at
-  least one hit/kill lands (battle progresses, no stalemate).
+- **integration smoke:** build a `create_mixed` battle, drive both fleets with
+  the AI for N turns via `resolve_turn`, assert the flagships **close distance**
+  (maneuver works) and at least one `SalvoImpactEvent` resolves (live fire). It
+  does **not** assert fleet-on-fleet hull damage — see the limitation below.
+
+## Known limitation: greedy fire has no projectile lead
+
+Battery weapons fire slow projectiles aimed at the target's bearing **at launch**;
+against a maneuvering enemy fleet those salvos usually miss (they mostly strike
+stationary neutral hulks that wander into the line of fire). The v1 AI is
+deliberately greedy and does **not** lead its shots, so AI-vs-AI fleet battles can
+fail to produce casualties unless ships close to near-point-blank range. This is an
+accepted v1 limitation (decided with the user). Consequence for downstream work:
+the **campaign gauntlet (sub-project 3) must impose a turn limit / explicit victory
+condition** rather than relying on a fleet being wiped out. Adding intercept-lead
+fire control is a deferred future enhancement.
+
+A second deferral: the AI applies stance changes as a direct in-place side effect
+(`ship.switch_stance`) at command-generation time, so no `StanceChangeEvent` is
+published on the turn log. This matches the pre-existing AI pattern and is fine for
+battle resolution, but the campaign/replay layer that wants a full event record
+should later route AI stance changes through a resolver `"switch_stance"` action.
 
 ## Quality gate
 
