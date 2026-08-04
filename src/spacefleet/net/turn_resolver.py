@@ -482,6 +482,18 @@ def resolve_turn(
         if shields > 0 or fire_dmg > 0:
             emit(EndOfTurnEvent(ship=ship, shields_regen=shields, fire_damage=fire_dmg))
 
+        # Fire suppression upgrade — chance to self-extinguish one fire
+        if ship.fires > 0:
+            from spacefleet.commander.upgrade_effects import (
+                FireSuppressedByUpgradeEvent,
+                fire_extinguish_chance,
+            )
+
+            suppress_p = fire_extinguish_chance(ship)
+            if suppress_p > 0 and state.dice.chance(suppress_p):
+                ship.fires = max(0, ship.fires - 1)
+                emit(FireSuppressedByUpgradeEvent(ship_id=ship.id, fires_remaining=ship.fires))
+
         # Fire extinguishing — leadership check
         if ship.fires > 0:
             roll = state.dice.d6()
@@ -513,7 +525,7 @@ def resolve_turn(
         ship.tick_stance_cooldown()
 
         # Combustion regen
-        ship.regenerate_combustion(15)
+        ship.regenerate_combustion(15 + ship.combustion_regen_bonus)
 
         # Tick critical hit state
         ship.tick_shields_suppressed()

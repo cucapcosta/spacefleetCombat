@@ -8,6 +8,7 @@ import dataclasses
 from typing import TYPE_CHECKING, Any
 
 from spacefleet.commander.passive_skills import PassiveContext, PassiveHook
+from spacefleet.core.events import TurnEvent
 from spacefleet.core.types import ShipClass
 from spacefleet.data.upgrade_registry import UpgradeProfile, UpgradeRegistry
 from spacefleet.models.loadout import LoadoutError
@@ -60,6 +61,17 @@ def ap_armor_delta(ship: Ship) -> int:
 def lance_crit_chance(ship: Ship) -> float:
     """Probability a penetrating lance hit triggers a critical (disruption overcharge)."""
     return float(upgrade_effect_total(ship.upgrade_ids, "lance_critical_bonus"))
+
+
+@dataclasses.dataclass
+class FireSuppressedByUpgradeEvent(TurnEvent):
+    ship_id: str
+    fires_remaining: int
+
+
+def fire_extinguish_chance(ship: Ship) -> float:
+    """Per-turn self-extinguish probability (fire suppression system)."""
+    return float(upgrade_effect_total(ship.upgrade_ids, "fire_extinguish_chance"))
 
 
 def upgrade_slots_for(hull: HullProfile, doctrine_id: str | None = None) -> int:
