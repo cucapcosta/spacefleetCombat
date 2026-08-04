@@ -136,12 +136,20 @@ def resolve_projectile_impact(
     # ── Damage pipeline: shields → armor → hull ──
     incoming_from = (projectile.bearing + 180.0) % 360.0
     incoming_rel = relative_bearing(target.heading, incoming_from)
+
+    armor_delta = 0
+    if attacker is not None and projectile.distance_traveled <= weapon.weapon.range * 0.5:
+        from spacefleet.commander.upgrade_effects import ap_armor_delta
+
+        armor_delta = ap_armor_delta(attacker)
+
     report = apply_damage_pipeline(
         target=target,
         hits=raw_hits,
         relative_bearing=incoming_rel,
         damage_per_hit=weapon.weapon.damage_per_hit,
         dice_roller=dr,
+        armor_delta=armor_delta,
     )
     result.shield_blocked = report.shield_blocked
     result.armor_saves = report.armor_saves

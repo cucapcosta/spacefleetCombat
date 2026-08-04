@@ -52,6 +52,11 @@ def upgrade_has_effect(upgrade_ids: list[str], key: str) -> bool:
     return any(prof.effect.get(key) for prof in _profiles(upgrade_ids))
 
 
+def ap_armor_delta(ship: Ship) -> int:
+    """Armor delta from armour-piercing ammunition (negative or 0)."""
+    return -int(upgrade_effect_total(ship.upgrade_ids, "ap_close_range"))
+
+
 def upgrade_slots_for(hull: HullProfile, doctrine_id: str | None = None) -> int:
     """Upgrade slot cap for *hull*, plus any doctrine bonus (Mechanicus Rites)."""
     from spacefleet.data.doctrine_registry import DoctrineRegistry
