@@ -135,3 +135,23 @@ def test_turbo_weaponry_and_capacitor_register_per_ship() -> None:
     assert battery_firepower_bonus(state, plain, upgraded, weapon) == 0  # isolation
     assert end_of_turn_shield_regen(state, upgraded) == 1
     assert end_of_turn_shield_regen(state, plain) == 0
+
+
+def test_navigators_chamber_adds_micro_warp_charge() -> None:
+    UpgradeRegistry.reset()
+    from spacefleet.commander.commander import AbilityState, Commander
+    from spacefleet.commander.upgrade_effects import apply_flagship_upgrade_charges
+    from spacefleet.core.types import Faction
+
+    cmdr = Commander(id="c1", name="Cmdr", faction=Faction.IMPERIAL_NAVY)
+    cmdr.ability_state["micro_warp_jump"] = AbilityState(remaining_charges=1)
+    flagship = build_ship_with_upgrades(
+        "fl", "Flag", HULK_HULL, make_hulk_weapons(), upgrade_ids=["navigators_chamber"]
+    )
+    apply_flagship_upgrade_charges(cmdr, flagship)
+    assert cmdr.ability_state["micro_warp_jump"].remaining_charges == 2
+
+    # No-ops: no upgrade / no such ability
+    plain = Ship.from_profile("fl2", "Plain", HULK_HULL, make_hulk_weapons())
+    apply_flagship_upgrade_charges(cmdr, plain)
+    assert cmdr.ability_state["micro_warp_jump"].remaining_charges == 2

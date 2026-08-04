@@ -15,6 +15,7 @@ from spacefleet.models.loadout import LoadoutError
 from spacefleet.models.ship import Ship
 
 if TYPE_CHECKING:
+    from spacefleet.commander.commander import Commander
     from spacefleet.commander.passive_skills import PassiveBus
     from spacefleet.core.game_state import CoreGameState
     from spacefleet.core.types import Vector2D
@@ -181,6 +182,16 @@ def build_ship_with_upgrades(
             ship.battles_survived = max(ship.battles_survived, tier_def.battles_required)
 
     return ship
+
+
+def apply_flagship_upgrade_charges(commander: Commander, flagship: Ship) -> None:
+    """Flagship-only ability-charge bonuses (Navigator's Chamber)."""
+    bonus = int(upgrade_effect_total(flagship.upgrade_ids, "micro_warp_charges"))
+    if bonus == 0:
+        return
+    ability = commander.ability_state.get("micro_warp_jump")
+    if ability is not None:
+        ability.remaining_charges += bonus
 
 
 def register_upgrade_handlers(bus: PassiveBus, state: CoreGameState) -> None:
