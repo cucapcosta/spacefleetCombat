@@ -77,6 +77,7 @@ class HullRegistry:
     """Singleton-style registry for hull profiles."""
 
     _hulls: dict[str, HullProfile] = {}
+    _default_loadouts: dict[str, dict[str, Any]] = {}
     _loaded: bool = False
 
     @classmethod
@@ -103,6 +104,12 @@ class HullRegistry:
             profile = _parse_hull(raw)
             if profile is not None:
                 cls._hulls[profile.id] = profile
+                raw_dl = raw.get("default_loadout") or {}
+                cls._default_loadouts[profile.id] = {
+                    "weapons": {int(k): str(v) for k, v in (raw_dl.get("weapons") or {}).items()},
+                    "upgrades": [str(u) for u in (raw_dl.get("upgrades") or [])],
+                    "doctrine": raw_dl.get("doctrine"),
+                }
 
         logger.info("Loaded %d hull profiles from YAML", len(cls._hulls))
 
@@ -144,7 +151,14 @@ class HullRegistry:
         return [h for h in cls._hulls.values() if h.classification == ship_class]
 
     @classmethod
+    def default_loadout(cls, hull_id: str) -> dict[str, Any]:
+        """The hull's yaml ``default_loadout`` (weapons/upgrades/doctrine), or {}."""
+        cls._load()
+        return dict(cls._default_loadouts.get(hull_id, {}))
+
+    @classmethod
     def reset(cls) -> None:
         """Clear the registry (for testing)."""
         cls._hulls.clear()
+        cls._default_loadouts.clear()
         cls._loaded = False

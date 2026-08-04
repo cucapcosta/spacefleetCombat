@@ -13,6 +13,7 @@ from spacefleet.models.fleet_spec import (
     FleetSpec,
     FleetSpecError,
     ShipSpec,
+    apply_default_loadout,
     fleet_from_dict,
     fleet_points,
     fleet_to_dict,
@@ -89,3 +90,19 @@ def test_dict_round_trip() -> None:
     assert restored == fleet
     assert restored.ships[0].weapons == {1: "macro_cannon_3", 2: "macro_cannon_3"}
     assert restored.faction is Faction.IMPERIAL_NAVY
+
+
+def test_hull_registry_exposes_default_loadout() -> None:
+    dl = HullRegistry.default_loadout("cobra_destroyer")
+    assert dl["weapons"] == {1: "macro_cannon_1", 2: "standard_torpedoes"}
+    assert dl["upgrades"] == []
+    assert dl["doctrine"] is None
+    assert HullRegistry.default_loadout("no_such_hull") == {}
+
+
+def test_apply_default_loadout_fills_spec() -> None:
+    spec = ShipSpec(name="Cobra", hull_id="cobra_destroyer")
+    apply_default_loadout(spec)
+    assert spec.weapons == {1: "macro_cannon_1", 2: "standard_torpedoes"}
+    assert spec.upgrade_ids == []
+    assert spec.doctrine_id is None

@@ -193,3 +193,13 @@ def validate_fleet_spec(fleet: FleetSpec, *, budget: int | None = None) -> None:
         total = fleet_points(fleet)
         if total > budget:
             raise FleetSpecError(f"fleet costs {total} pts, over budget {budget}")
+
+
+def apply_default_loadout(spec: ShipSpec) -> None:
+    """Fill *spec* with the hull's yaml default loadout (overwrites choices)."""
+    default = HullRegistry.default_loadout(spec.hull_id)
+    if not default:
+        return
+    spec.weapons = dict(default.get("weapons") or {})
+    spec.upgrade_ids = list(default.get("upgrades") or [])
+    spec.doctrine_id = default.get("doctrine")
