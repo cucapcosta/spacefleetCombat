@@ -285,6 +285,25 @@ def resolve_lance_ray(
         best_target.take_hull_damage(result.hull_damage_dealt)
         result.target_destroyed = not best_target.alive
 
+    # Disruption overcharge — chance of a critical per penetrating hit.
+    if result.penetrating_hits > 0 and best_target.alive:
+        from spacefleet.commander.upgrade_effects import lance_crit_chance
+
+        crit_p = lance_crit_chance(attacker)
+        if crit_p > 0:
+            from spacefleet.combat.critical_hits import apply_critical_hit, roll_critical_hit
+
+            for _ in range(result.penetrating_hits):
+                if not best_target.alive:
+                    break
+                if not dr.chance(crit_p):
+                    continue
+                crit = roll_critical_hit(best_target, dice_roller=dr, state=state)
+                apply_critical_hit(best_target, crit)
+                result.critical_hits.append(crit)
+                if not best_target.alive:
+                    result.target_destroyed = True
+
     # Summary
     parts = [f"Rolls: [{', '.join(str(r) for r in rolls)}]"]
     parts.append(f"{raw_hits} hits (4+ needed)")

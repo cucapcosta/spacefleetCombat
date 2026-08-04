@@ -57,6 +57,11 @@ def ap_armor_delta(ship: Ship) -> int:
     return -int(upgrade_effect_total(ship.upgrade_ids, "ap_close_range"))
 
 
+def lance_crit_chance(ship: Ship) -> float:
+    """Probability a penetrating lance hit triggers a critical (disruption overcharge)."""
+    return float(upgrade_effect_total(ship.upgrade_ids, "lance_critical_bonus"))
+
+
 def upgrade_slots_for(hull: HullProfile, doctrine_id: str | None = None) -> int:
     """Upgrade slot cap for *hull*, plus any doctrine bonus (Mechanicus Rites)."""
     from spacefleet.data.doctrine_registry import DoctrineRegistry

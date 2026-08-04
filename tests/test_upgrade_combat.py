@@ -7,12 +7,13 @@ import dataclasses
 from spacefleet.combat.damage import apply_damage_pipeline
 from spacefleet.combat.projectile_resolution import resolve_projectile_impact
 from spacefleet.commander.upgrade_effects import build_ship_with_upgrades
-from spacefleet.core.types import Vector2D
-from spacefleet.data.demo_data import HULK_HULL, SALVAGE_GUN, make_hulk_weapons
+from spacefleet.core.types import Arc, Vector2D
+from spacefleet.data.demo_data import HULK_HULL, LANCE_2, SALVAGE_GUN, make_hulk_weapons
 from spacefleet.data.upgrade_registry import UpgradeRegistry
 from spacefleet.dice import DiceRoller
 from spacefleet.models.projectile import Projectile
 from spacefleet.models.ship import Ship
+from spacefleet.models.weapon import WeaponMount
 from spacefleet.net.game_state import GameState
 
 
@@ -102,3 +103,64 @@ def test_ap_ammo_applies_only_at_close_range() -> None:
         state=state,
     )
     assert far.penetrating_hits == 0  # no AP at long range; roll 4 vs armor 5 saved
+
+
+def _lance_mount() -> WeaponMount:
+    return WeaponMount(slot_id=1, slot_name="Lance", arc=Arc.PROW, weapon=LANCE_2)
+
+
+def test_disruption_overcharge_triggers_lance_crits() -> None:
+    UpgradeRegistry.reset()
+    from spacefleet.combat.projectile_resolution import resolve_lance_ray
+    from spacefleet.core.types import Faction
+
+    state = GameState()
+    attacker = build_ship_with_upgrades(
+        "lc",
+        "Lancer",
+        HULK_HULL,
+        [_lance_mount()],
+        upgrade_ids=["disruption_overcharge"],
+        position=Vector2D(0, 0),
+    )
+    attacker.faction = Faction.IMPERIAL_NAVY
+    fat_hull = dataclasses.replace(HULK_HULL, hull_hits=99)
+    target = Ship.from_profile(
+        "lt", "Lance Target", fat_hull, make_hulk_weapons(), position=Vector2D(0, 10)
+    )
+    target.faction = Faction.CHAOS_FLEET
+    target.shields_current = 0
+    state.add_ship(attacker)
+    state.add_ship(target)
+
+    dice = _FixedDice(6)  # every lance die hits; chance() always True
+    result = resolve_lance_ray(
+        attacker, attacker.weapons[0], 0.0, [target], dice_roller=dice, state=state
+    )
+    assert result is not None
+    assert result.penetrating_hits > 0
+    assert len(result.critical_hits) == result.penetrating_hits
+
+
+def test_no_lance_crits_without_upgrade() -> None:
+    from spacefleet.combat.projectile_resolution import resolve_lance_ray
+    from spacefleet.core.types import Faction
+
+    state = GameState()
+    attacker = Ship.from_profile(
+        "lc2", "Plain Lancer", HULK_HULL, [_lance_mount()], position=Vector2D(0, 0)
+    )
+    attacker.faction = Faction.IMPERIAL_NAVY
+    target = Ship.from_profile(
+        "lt2", "Lance Target", HULK_HULL, make_hulk_weapons(), position=Vector2D(0, 10)
+    )
+    target.faction = Faction.CHAOS_FLEET
+    target.shields_current = 0
+    state.add_ship(attacker)
+    state.add_ship(target)
+
+    result = resolve_lance_ray(
+        attacker, attacker.weapons[0], 0.0, [target], dice_roller=_FixedDice(6), state=state
+    )
+    assert result is not None
+    assert result.critical_hits == []
