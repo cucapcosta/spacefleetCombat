@@ -74,3 +74,43 @@ def test_plain_ship_combustion_unchanged() -> None:
     state.add_ship(ship)
     resolve_turn(state, {"pl": Command(ship_id="pl", action="pass", args={})})
     assert ship.combustion == 65
+
+
+def test_upgraded_ship_full_turn_integration() -> None:
+    """Turbo weaponry + shield capacitor + master of signals through resolve_turn."""
+    UpgradeRegistry.reset()
+    import dataclasses as dc
+
+    from spacefleet.commander.passive_skills import (
+        battery_firepower_bonus,
+        end_of_turn_shield_regen,
+    )
+    from spacefleet.core.types import Stance
+
+    state = GameState()
+    shielded_hull = dc.replace(HULK_HULL, shields=4)
+    ship = build_ship_with_upgrades(
+        "int1",
+        "Integrated",
+        shielded_hull,
+        make_hulk_weapons(),
+        upgrade_ids=["turbo_weaponry", "auxiliary_shield_capacitor", "master_of_signals"],
+        position=Vector2D(0, 0),
+    )
+    ship.shields_current = 1
+    state.add_ship(ship)
+
+    log = resolve_turn(state, {"int1": Command(ship_id="int1", action="pass", args={})})
+    assert log is not None
+
+    # Capacitor: base regen 1 + upgrade 1 = 2 → shields 1 → 3
+    assert ship.shields_current == 3
+    # Bus carries the turbo bonus after the turn's build
+    assert battery_firepower_bonus(state, ship, ship, ship.weapons[0]) == 1
+    assert end_of_turn_shield_regen(state, ship) == 1
+    # Master of signals: cooldown 1 lower than the stance's configured cooldown
+    from spacefleet.data.stance_registry import StanceRegistry
+
+    ship.switch_stance(Stance.LOCK_ON)
+    expected = max(0, StanceRegistry.get_for(Stance.LOCK_ON).switch_cooldown - 1)
+    assert ship.stance_cooldown_remaining == expected

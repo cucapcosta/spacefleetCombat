@@ -7,6 +7,14 @@ title: Upgrade Catalog
 
 Upgrades are passive enhancements installed into ship upgrade slots. The number of available slots depends on ship classification.
 
+:::note Implementation status
+All catalog upgrades are wired into battle except **Power Ram** (awaits a
+ramming mechanic), and the torpedo-linked halves of **Extra Turrets** and
+**Automated Reload System** (await Sprint-6 torpedoes — their stats/hooks
+already load). Slot caps: Escort 1, Light Cruiser 2, Cruiser 3,
+Battlecruiser 3, Battleship 4; Mechanicus Rites adds +1.
+:::
+
 ## Upgrade Slots by Ship Class
 
 | Classification | Upgrade Slots |
