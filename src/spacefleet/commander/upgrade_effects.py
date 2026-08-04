@@ -4,14 +4,18 @@ catalog (data-driven): new upgrades reusing existing keys need only yaml."""
 
 from __future__ import annotations
 
+import dataclasses
 from typing import TYPE_CHECKING
 
 from spacefleet.core.types import ShipClass
 from spacefleet.data.upgrade_registry import UpgradeProfile, UpgradeRegistry
 from spacefleet.models.loadout import LoadoutError
+from spacefleet.models.ship import Ship
 
 if TYPE_CHECKING:
+    from spacefleet.core.types import Vector2D
     from spacefleet.models.ship_profile import HullProfile
+    from spacefleet.models.weapon import WeaponMount
 
 
 UPGRADE_SLOT_CAPS: dict[ShipClass, int] = {
@@ -78,3 +82,77 @@ def validate_upgrades(
         for prof in _profiles(upgrade_ids):
             if prof.flagship_only:
                 raise LoadoutError(f"upgrade {prof.id!r} is flagship-only")
+
+
+def apply_upgrades_to_hull(hull: HullProfile, upgrade_ids: list[str]) -> HullProfile:
+    """Hull copy with all upgrade stat deltas applied (clamped sane)."""
+    if not upgrade_ids:
+        return hull
+    return dataclasses.replace(
+        hull,
+        shields=max(0, hull.shields + int(upgrade_effect_total(upgrade_ids, "shields"))),
+        armor_prow=max(0, hull.armor_prow + int(upgrade_effect_total(upgrade_ids, "armor_prow"))),
+        turrets=max(0, hull.turrets + int(upgrade_effect_total(upgrade_ids, "turrets"))),
+        speed=max(0.0, hull.speed + upgrade_effect_total(upgrade_ids, "speed")),
+        turn_rate=max(0.0, hull.turn_rate + upgrade_effect_total(upgrade_ids, "turn_rate")),
+        sensor_range=max(
+            0.0, hull.sensor_range + upgrade_effect_total(upgrade_ids, "sensor_range")
+        ),
+        base_morale=max(1, hull.base_morale + int(upgrade_effect_total(upgrade_ids, "morale_max"))),
+    )
+
+
+def build_ship_with_upgrades(
+    ship_id: str,
+    name: str,
+    hull: HullProfile,
+    weapons: list[WeaponMount],
+    *,
+    upgrade_ids: list[str],
+    doctrine_id: str | None = None,
+    position: Vector2D | None = None,
+    heading: float = 0.0,
+) -> Ship:
+    """Construct a Ship applying doctrine then upgrade effects.
+
+    Doctrine hull mods apply first (same order the fleet builder will use),
+    then upgrade hull mods, then upgrade-derived mutable state.
+    """
+    from spacefleet.commander.doctrine_effects import apply_doctrine_to_hull
+    from spacefleet.data.doctrine_registry import DoctrineRegistry
+    from spacefleet.data.skill_registry import SkillRegistry
+
+    doctrine = DoctrineRegistry.get_or_none(doctrine_id)
+    final_hull = apply_doctrine_to_hull(hull, doctrine) if doctrine is not None else hull
+    final_hull = apply_upgrades_to_hull(final_hull, upgrade_ids)
+    ship = Ship.from_profile(
+        ship_id,
+        name,
+        final_hull,
+        weapons,
+        position=position,
+        heading=heading,
+        doctrine_id=doctrine_id,
+        morale_floor=doctrine.morale_floor if doctrine is not None else 0,
+        upgrade_ids=upgrade_ids,
+    )
+
+    combustion_bonus = int(upgrade_effect_total(upgrade_ids, "combustion_max"))
+    ship.combustion_max += combustion_bonus
+    ship.combustion += combustion_bonus
+    ship.combustion_regen_bonus = int(upgrade_effect_total(upgrade_ids, "combustion_regen"))
+    ship.stance_cooldown_reduction = int(
+        upgrade_effect_total(upgrade_ids, "stance_cooldown_reduction")
+    )
+
+    tiers = [
+        int(p.effect["starting_crew_tier"])
+        for p in _profiles(upgrade_ids)
+        if "starting_crew_tier" in p.effect
+    ]
+    if tiers:
+        tier_def = SkillRegistry.get_crew_tier(max(tiers))
+        if tier_def is not None:
+            ship.battles_survived = max(ship.battles_survived, tier_def.battles_required)
+
+    return ship
