@@ -106,3 +106,41 @@ def test_apply_default_loadout_fills_spec() -> None:
     assert spec.weapons == {1: "macro_cannon_1", 2: "standard_torpedoes"}
     assert spec.upgrade_ids == []
     assert spec.doctrine_id is None
+
+
+def test_default_loadout_returns_defensive_copy() -> None:
+    dl = HullRegistry.default_loadout("cobra_destroyer")
+    dl["weapons"][1] = "corrupted"
+    dl["upgrades"].append("corrupted")
+
+    dl2 = HullRegistry.default_loadout("cobra_destroyer")
+    assert dl2["weapons"] == {1: "macro_cannon_1", 2: "standard_torpedoes"}
+    assert dl2["upgrades"] == []
+
+
+def test_apply_default_loadout_noop_without_default_section() -> None:
+    # Unknown hull: HullRegistry.default_loadout returns {} -> apply is a no-op.
+    spec = ShipSpec(
+        name="Ghost",
+        hull_id="no_such_hull",
+        weapons={1: "macro_cannon_1"},
+        upgrade_ids=["armour_piercing_ammo"],
+        doctrine_id="navy_gunnery_school",
+    )
+    apply_default_loadout(spec)
+    assert spec.weapons == {1: "macro_cannon_1"}
+    assert spec.upgrade_ids == ["armour_piercing_ammo"]
+    assert spec.doctrine_id == "navy_gunnery_school"
+
+    # Real hull WITH a default_loadout: existing choices are overwritten.
+    spec2 = ShipSpec(
+        name="Cobra",
+        hull_id="cobra_destroyer",
+        weapons={1: "macro_cannon_1"},
+        upgrade_ids=["armour_piercing_ammo"],
+        doctrine_id="navy_gunnery_school",
+    )
+    apply_default_loadout(spec2)
+    assert spec2.weapons == {1: "macro_cannon_1", 2: "standard_torpedoes"}
+    assert spec2.upgrade_ids == []
+    assert spec2.doctrine_id is None
