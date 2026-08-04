@@ -2,14 +2,20 @@
 
 from __future__ import annotations
 
+from spacefleet.commander.passive_skills import (
+    PassiveBus,
+    battery_firepower_bonus,
+    end_of_turn_shield_regen,
+)
 from spacefleet.commander.upgrade_effects import (
     apply_upgrades_to_hull,
     build_ship_with_upgrades,
 )
-from spacefleet.core.types import Stance
+from spacefleet.core.types import Stance, Vector2D
 from spacefleet.data.demo_data import HULK_HULL, make_hulk_weapons
 from spacefleet.data.upgrade_registry import UpgradeRegistry
 from spacefleet.models.ship import Ship
+from spacefleet.net.game_state import GameState
 
 
 def _ship(**kwargs: object) -> Ship:
@@ -106,3 +112,26 @@ def test_build_ship_without_upgrades_is_plain() -> None:
     ship = build_ship_with_upgrades("up3", "Plain", HULK_HULL, make_hulk_weapons(), upgrade_ids=[])
     assert ship.hull_max == HULK_HULL.hull_hits
     assert ship.combustion_max == 100
+
+
+def test_turbo_weaponry_and_capacitor_register_per_ship() -> None:
+    UpgradeRegistry.reset()
+    state = GameState()
+    upgraded = build_ship_with_upgrades(
+        "u1",
+        "Upgraded",
+        HULK_HULL,
+        make_hulk_weapons(),
+        upgrade_ids=["turbo_weaponry", "auxiliary_shield_capacitor"],
+        position=Vector2D(0, 0),
+    )
+    plain = Ship.from_profile("p1", "Plain", HULK_HULL, make_hulk_weapons())
+    state.add_ship(upgraded)
+    state.add_ship(plain)
+    state.passives = PassiveBus.build(state)
+
+    weapon = upgraded.weapons[0]
+    assert battery_firepower_bonus(state, upgraded, plain, weapon) == 1
+    assert battery_firepower_bonus(state, plain, upgraded, weapon) == 0  # isolation
+    assert end_of_turn_shield_regen(state, upgraded) == 1
+    assert end_of_turn_shield_regen(state, plain) == 0

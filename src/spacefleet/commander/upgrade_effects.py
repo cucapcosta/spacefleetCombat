@@ -5,14 +5,17 @@ catalog (data-driven): new upgrades reusing existing keys need only yaml."""
 from __future__ import annotations
 
 import dataclasses
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
+from spacefleet.commander.passive_skills import PassiveContext, PassiveHook
 from spacefleet.core.types import ShipClass
 from spacefleet.data.upgrade_registry import UpgradeProfile, UpgradeRegistry
 from spacefleet.models.loadout import LoadoutError
 from spacefleet.models.ship import Ship
 
 if TYPE_CHECKING:
+    from spacefleet.commander.passive_skills import PassiveBus
+    from spacefleet.core.game_state import CoreGameState
     from spacefleet.core.types import Vector2D
     from spacefleet.models.ship_profile import HullProfile
     from spacefleet.models.weapon import WeaponMount
@@ -156,3 +159,48 @@ def build_ship_with_upgrades(
             ship.battles_survived = max(ship.battles_survived, tier_def.battles_required)
 
     return ship
+
+
+def register_upgrade_handlers(bus: PassiveBus, state: CoreGameState) -> None:
+    """Per-ship PassiveBus handlers keyed on ``ship.upgrade_ids``."""
+    for ship in state.ships.values():
+        if not ship.upgrade_ids:
+            continue
+        sid = ship.id
+
+        battery = int(upgrade_effect_total(ship.upgrade_ids, "battery_strength"))
+        if battery:
+
+            def _battery(ctx: PassiveContext, s: str = sid, v: int = battery) -> Any:
+                return ctx.value + v if ctx.ship is not None and ctx.ship.id == s else ctx.value
+
+            bus.register(
+                source=f"{sid}:upgrade_battery",
+                hook=PassiveHook.BATTERY_FIREPOWER_BONUS,
+                handler=_battery,
+            )
+
+        regen = int(upgrade_effect_total(ship.upgrade_ids, "shield_regen"))
+        if regen:
+
+            def _regen(ctx: PassiveContext, s: str = sid, v: int = regen) -> Any:
+                return ctx.value + v if ctx.ship is not None and ctx.ship.id == s else ctx.value
+
+            bus.register(
+                source=f"{sid}:upgrade_shield_regen",
+                hook=PassiveHook.END_OF_TURN_SHIELD_REGEN,
+                handler=_regen,
+            )
+
+        reload_red = int(upgrade_effect_total(ship.upgrade_ids, "torpedo_reload_reduction"))
+        if reload_red:
+
+            def _reload(ctx: PassiveContext, s: str = sid, v: int = reload_red) -> Any:
+                return ctx.value - v if ctx.ship is not None and ctx.ship.id == s else ctx.value
+
+            # Inert until Sprint-6 torpedoes exist — registration proves loadability.
+            bus.register(
+                source=f"{sid}:upgrade_reload",
+                hook=PassiveHook.TORPEDO_RELOAD_REDUCTION,
+                handler=_reload,
+            )
