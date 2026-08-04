@@ -79,6 +79,12 @@ class Ship:
     doctrine_id: str | None = None
     morale_floor: int = 0
 
+    # ── upgrades ──
+    upgrade_ids: list[str] = field(default_factory=list)
+    stance_cooldown_reduction: int = 0
+    combustion_regen_bonus: int = 0
+    belt_armour_spent: bool = False
+
     # ── pending manoeuvre ──
     pending_turn: float = 0.0  # degrees remaining; positive = starboard, negative = port
 
@@ -244,7 +250,9 @@ class Ship:
 
         self.stance_state.stance = new_stance
         data = StanceRegistry.get_for(new_stance)
-        self.stance_state.cooldown_remaining = data.switch_cooldown
+        self.stance_state.cooldown_remaining = max(
+            0, data.switch_cooldown - self.stance_cooldown_reduction
+        )
         return True
 
     def tick_stance_cooldown(self) -> None:
@@ -499,6 +507,7 @@ class Ship:
         speed: float = 0.0,
         doctrine_id: str | None = None,
         morale_floor: int = 0,
+        upgrade_ids: list[str] | None = None,
     ) -> Ship:
         """Create a combat-ready ship from a hull profile + weapon loadout."""
         return cls(
@@ -516,6 +525,7 @@ class Ship:
             morale_max=hull.base_morale,
             doctrine_id=doctrine_id,
             morale_floor=morale_floor,
+            upgrade_ids=list(upgrade_ids or []),
         )
 
     def __repr__(self) -> str:
