@@ -39,6 +39,22 @@ class CriticalResult:
     shields_suppressed_turns: int = 0
     is_temporary: bool = False
     temporary_turns: int = 0
+    ignored_by_belt_armour: bool = False
+
+
+# Subsystem-affecting crit effects — the ones Belt Armour can absorb.
+# Structural crits (hull_breach, fire, bulkhead_collapse, magazine_detonation)
+# are not blocked.
+_SUBSYSTEM_CRIT_EFFECTS = frozenset(
+    {
+        "shields_collapse",
+        "thrusters_damaged",
+        "weapon_destroyed",
+        "prow_weapons_destroyed",
+        "engine_damaged",
+        "bridge_destroyed",
+    }
+)
 
 
 # ── Critical hit table (inline fallback) ─────────────────────
@@ -268,6 +284,14 @@ def _make_targeted_crit(
 def apply_critical_hit(ship: Ship, result: CriticalResult) -> None:
     """Apply a critical hit's effects to a ship.  Also applies -5 morale."""
     effect = result.effect
+
+    if effect in _SUBSYSTEM_CRIT_EFFECTS and not ship.belt_armour_spent and ship.upgrade_ids:
+        from spacefleet.commander.upgrade_effects import upgrade_has_effect
+
+        if upgrade_has_effect(ship.upgrade_ids, "first_crit_ignored"):
+            ship.belt_armour_spent = True
+            result.ignored_by_belt_armour = True
+            return
 
     if effect == "shields_collapse":
         ship.shields_current = 0

@@ -108,6 +108,10 @@ class PassiveBus:
         from spacefleet.commander.doctrine_effects import register_doctrine_handlers
 
         register_doctrine_handlers(bus, state)
+
+        from spacefleet.commander.upgrade_effects import register_upgrade_handlers
+
+        register_upgrade_handlers(bus, state)
         return bus
 
 

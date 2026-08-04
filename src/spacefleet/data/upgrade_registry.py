@@ -34,6 +34,7 @@ class UpgradeProfile:
     category: str
     cost: int
     description: str = ""
+    flagship_only: bool = False
     effect: dict[str, Any] = field(default_factory=dict)
 
 
@@ -47,6 +48,7 @@ def _parse(upgrade_id: str, raw: dict[str, Any]) -> UpgradeProfile | None:
             category=str(raw.get("category", "misc")),
             cost=int(raw["cost"]),
             description=str(raw.get("description", "")),
+            flagship_only=bool(raw.get("flagship_only", False)),
             effect=effect,
         )
     except (KeyError, ValueError, TypeError) as exc:

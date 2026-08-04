@@ -46,6 +46,7 @@ def apply_damage_pipeline(
     damage_per_hit: int,
     ignores_armor: bool = False,
     dice_roller: DiceRoller | None = None,
+    armor_delta: int = 0,
 ) -> DamageReport:
     """Drive the shield → armor → hull calculation for *hits* potential hits.
 
@@ -55,6 +56,9 @@ def apply_damage_pipeline(
     before calling ``target.take_hull_damage(report.hull_damage)``
     themselves.  Morale changes are also applied separately by the
     caller.
+
+    *armor_delta*: negative lowers the target's effective armor —
+    armour-piercing ammunition.
     """
     dr = dice_roller or default_dice
     report = DamageReport()
@@ -79,7 +83,7 @@ def apply_damage_pipeline(
             )
         return report
 
-    armor = target.armor_for_bearing(relative_bearing)
+    armor = max(1, target.armor_for_bearing(relative_bearing) + armor_delta)
     for _ in range(after_shields):
         roll = dr.d6()
         detail = HitDetail(armor_roll=roll, armor_value=armor)

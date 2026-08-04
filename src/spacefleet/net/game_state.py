@@ -195,6 +195,9 @@ def _assign_default_commander(
     ships = [state.ships[sid] for sid in ship_ids]
     flagship = max(ships, key=lambda s: (_CLASS_WEIGHT.get(s.hull.classification, 0), s.id))
     cmdr = _build_starter_commander(fleet_id, faction)
+    from spacefleet.commander.upgrade_effects import apply_flagship_upgrade_charges
+
+    apply_flagship_upgrade_charges(cmdr, flagship)
     state.fleets[fleet_id] = Fleet(
         id=fleet_id,
         commander=cmdr,
