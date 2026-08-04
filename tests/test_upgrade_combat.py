@@ -164,3 +164,38 @@ def test_no_lance_crits_without_upgrade() -> None:
     )
     assert result is not None
     assert result.critical_hits == []
+
+
+def test_belt_armour_ignores_first_subsystem_crit_only() -> None:
+    UpgradeRegistry.reset()
+    from spacefleet.combat.critical_hits import CriticalResult, apply_critical_hit
+
+    ship = build_ship_with_upgrades(
+        "ba", "Armoured", HULK_HULL, make_hulk_weapons(), upgrade_ids=["belt_armour"]
+    )
+
+    first = CriticalResult(roll=3, name="Thrusters Damaged", effect="thrusters_damaged")
+    apply_critical_hit(ship, first)
+    assert first.ignored_by_belt_armour is True
+    assert ship.crit_thrusters_damaged is False  # ignored
+    assert ship.belt_armour_spent is True
+
+    second = CriticalResult(roll=3, name="Thrusters Damaged", effect="thrusters_damaged")
+    apply_critical_hit(ship, second)
+    assert second.ignored_by_belt_armour is False
+    assert ship.crit_thrusters_damaged is True  # belt spent, crit lands
+
+
+def test_belt_armour_does_not_block_structural_crits() -> None:
+    UpgradeRegistry.reset()
+    from spacefleet.combat.critical_hits import CriticalResult, apply_critical_hit
+
+    ship = build_ship_with_upgrades(
+        "ba2", "Armoured", HULK_HULL, make_hulk_weapons(), upgrade_ids=["belt_armour"]
+    )
+    hull_before = ship.hull_current
+    breach = CriticalResult(roll=7, name="Hull Breach", effect="hull_breach", extra_damage=1)
+    apply_critical_hit(ship, breach)
+    assert breach.ignored_by_belt_armour is False
+    assert ship.hull_current < hull_before  # structural damage applied
+    assert ship.belt_armour_spent is False  # belt untouched
