@@ -126,6 +126,13 @@ field (parsed from the yaml top-level key that exists today but is dropped).
 
 ## Non-goals / Deferred
 
+- **`build_ship_with_upgrades` does not self-validate** (final-review finding): the fleet
+  builder (sub-project 4) MUST call `validate_upgrades` at loadout time — otherwise slot
+  caps and flagship-only enforcement never fire in practice. `validate_upgrades` currently
+  has zero call sites in `src/`.
+- Belt armour also absorbs boarding-targeted subsystem crits (Lightning Strike) and skips
+  the crit's −5 morale when absorbing — accepted, undocumented-in-rules interactions.
+
 - **power_ram** — inert until a ramming mechanic exists (none planned before Sprint 9 polish).
 - **extra_turrets / automated_reload** — stat/hook land now; consumed when Sprint-6 torpedoes arrive.
 - Upgrade points cost enforcement — fleet builder (sub-project 4). `Loadout.total_cost` unchanged.
