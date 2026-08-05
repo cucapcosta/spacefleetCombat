@@ -154,6 +154,47 @@ def test_flagship_command() -> None:
     assert s.fleet.flagship_index == 1
 
 
+def test_remove_before_flagship_keeps_flagship() -> None:
+    s = _session()
+    s.execute("buy sword_frigate ISS A")
+    s.execute("buy sword_frigate ISS B")
+    s.execute("buy sword_frigate ISS C")
+    s.execute("equip 2")
+    s.execute("flagship")
+    s.execute("back")
+    assert s.fleet.flagship_index == 1
+    out = s.execute("remove 1")
+    assert "removed" in out.lower()
+    assert s.fleet.ships[s.fleet.flagship_index].name == "ISS B"
+
+
+def test_remove_the_flagship_resets_to_zero() -> None:
+    s = _session()
+    s.execute("buy sword_frigate ISS A")
+    s.execute("buy sword_frigate ISS B")
+    s.execute("buy sword_frigate ISS C")
+    s.execute("equip 2")
+    s.execute("flagship")
+    s.execute("back")
+    assert s.fleet.flagship_index == 1
+    s.execute("remove 2")
+    assert s.fleet.flagship_index == 0
+
+
+def test_remove_after_flagship_unchanged() -> None:
+    s = _session()
+    s.execute("buy sword_frigate ISS A")
+    s.execute("buy sword_frigate ISS B")
+    s.execute("buy sword_frigate ISS C")
+    s.execute("equip 1")
+    s.execute("flagship")
+    s.execute("back")
+    assert s.fleet.flagship_index == 0
+    s.execute("remove 2")
+    assert s.fleet.flagship_index == 0
+    assert s.fleet.ships[s.fleet.flagship_index].name == "ISS A"
+
+
 def test_save_and_load_round_trip(tmp_path: Path) -> None:
     s = _session()
     s.execute("buy sword_frigate ISS Blade")

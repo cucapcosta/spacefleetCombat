@@ -133,9 +133,17 @@ class FleetBuilderSession:
         if idx is None:
             return "usage: remove <ship number>"
         spec = self.fleet.ships.pop(idx)
+        if idx < self.fleet.flagship_index:
+            self.fleet.flagship_index -= 1
+        elif idx == self.fleet.flagship_index:
+            self.fleet.flagship_index = 0
         if self.fleet.flagship_index >= len(self.fleet.ships):
             self.fleet.flagship_index = 0
-        return f"Removed '{spec.name}'. ({self.remaining} pts remaining)"
+        message = f"Removed '{spec.name}'. ({self.remaining} pts remaining)"
+        warning = self._revalidate()
+        if warning:
+            message = f"{message}\nwarning: {warning}"
+        return message
 
     def _status(self) -> str:
         if not self.fleet.ships:
