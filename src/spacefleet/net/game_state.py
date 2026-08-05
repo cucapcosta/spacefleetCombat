@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from spacefleet.commander.commander import AbilityState, Commander
+from spacefleet.commander.upgrade_effects import build_ship_with_upgrades
 from spacefleet.core.game_state import CoreGameState
 from spacefleet.core.types import Arc, Faction, ShipClass, Vector2D, heading_to_vector
 from spacefleet.data import HullRegistry, WeaponRegistry
@@ -17,6 +18,7 @@ from spacefleet.data.demo_data import HULK_HULL, make_hulk_weapons
 from spacefleet.data.skill_registry import SkillRegistry
 from spacefleet.dice import DiceRoller
 from spacefleet.models.fleet import Fleet
+from spacefleet.models.fleet_spec import FleetSpec, validate_fleet_spec
 from spacefleet.models.ship import Ship
 from spacefleet.models.weapon import WeaponMount
 
@@ -125,6 +127,21 @@ class GameState(CoreGameState):
         _add_ai_hulks(state, num_hulks=2, faction=Faction.IMPERIAL_NAVY, center_x=-60)
         return state
 
+    @classmethod
+    def create_pve_custom(
+        cls,
+        player_id: str,
+        fleet: FleetSpec,
+        *,
+        seed: int | None = None,
+        num_hulks: int = 4,
+    ) -> GameState:
+        """One player's custom fleet vs AI hulks."""
+        state = cls(dice=DiceRoller(seed=seed))
+        add_custom_fleet(state, player_id, fleet)
+        _add_ai_hulks(state, num_hulks=num_hulks)
+        return state
+
 
 # ── Fleet-building helpers ───────────────────────────────────
 
@@ -147,6 +164,62 @@ def _make_default_weapons(hull_id: str) -> list[WeaponMount]:
         ]
     # Fallback: empty
     return []
+
+
+def add_custom_fleet(
+    state: GameState,
+    player_id: str,
+    fleet: FleetSpec,
+    *,
+    start_x: float = 0.0,
+    start_y: float = 0.0,
+    heading: float = 0.0,
+) -> list[str]:
+    """Materialise a validated :class:`FleetSpec` into *state* for *player_id*.
+
+    Ships form a column behind the lead ship.  Returns the created ship ids.
+    Raises before touching *state* if the spec is invalid.
+    """
+    validate_fleet_spec(fleet)
+
+    ship_ids: list[str] = []
+    for i, spec in enumerate(fleet.ships):
+        hull = HullRegistry.get(spec.hull_id)
+        slot_index = {s.id: s for s in hull.weapon_slots}
+        mounts = [
+            WeaponMount(
+                slot_id=slot_id,
+                slot_name=slot_index[slot_id].name,
+                arc=slot_index[slot_id].arc,
+                weapon=WeaponRegistry.get(weapon_id),
+            )
+            for slot_id, weapon_id in sorted(spec.weapons.items())
+        ]
+        ship_id = f"{player_id}_ship_{i + 1}"
+        offset_x = -10.0 if i % 2 == 1 else (10.0 if i > 0 else 0.0)
+        ship = build_ship_with_upgrades(
+            ship_id,
+            spec.name,
+            hull,
+            mounts,
+            upgrade_ids=list(spec.upgrade_ids),
+            doctrine_id=spec.doctrine_id,
+            position=Vector2D(start_x + offset_x, start_y - 15.0 * i),
+            heading=heading,
+        )
+        state.ships[ship_id] = ship
+        ship_ids.append(ship_id)
+
+    state.player_ships[player_id] = ship_ids
+    state.kills[player_id] = 0
+    _assign_default_commander(
+        state,
+        player_id,
+        ship_ids,
+        fleet.faction,
+        flagship_override=ship_ids[fleet.flagship_index],
+    )
+    return ship_ids
 
 
 _CLASS_WEIGHT: dict[ShipClass, int] = {
@@ -188,12 +261,16 @@ def _assign_default_commander(
     fleet_id: str,
     ship_ids: list[str],
     faction: Faction,
+    flagship_override: str | None = None,
 ) -> None:
     """Attach a starter commander to *fleet_id*, flagged on its heaviest hull."""
     if not ship_ids:
         return
     ships = [state.ships[sid] for sid in ship_ids]
-    flagship = max(ships, key=lambda s: (_CLASS_WEIGHT.get(s.hull.classification, 0), s.id))
+    if flagship_override is not None:
+        flagship = state.ships[flagship_override]
+    else:
+        flagship = max(ships, key=lambda s: (_CLASS_WEIGHT.get(s.hull.classification, 0), s.id))
     cmdr = _build_starter_commander(fleet_id, faction)
     from spacefleet.commander.upgrade_effects import apply_flagship_upgrade_charges
 
