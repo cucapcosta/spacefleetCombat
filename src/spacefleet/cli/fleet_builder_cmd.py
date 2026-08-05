@@ -323,3 +323,38 @@ class FleetBuilderSession:
         except (FleetSpecError, ValueError) as exc:
             return str(exc)
         return None
+
+
+def run_fleet_builder() -> None:
+    """Interactive fleet-builder loop for the app menu."""
+    from spacefleet.cli.colors import C, bold, colored, dim
+    from spacefleet.cli.prompts import prompt_int, prompt_with_default
+    from spacefleet.core.types import Faction
+
+    print(f"\n  {bold('FLEET BUILDER')}\n")
+    faction_raw = prompt_with_default("Faction (imperial_navy / chaos_fleet)", "imperial_navy")
+    if faction_raw is None:
+        return
+    try:
+        faction = Faction(faction_raw)
+    except ValueError:
+        print(f"  {colored(f'unknown faction {faction_raw!r}', C.RED)}")
+        return
+    budget = prompt_int("Points budget", 1000, min_val=1, max_val=100_000)
+    if budget is None:
+        return
+    name = prompt_with_default("Fleet name", "My Fleet")
+    if name is None:
+        return
+
+    session = FleetBuilderSession(faction, budget=budget, name=name)
+    print(dim("  Type 'help' for commands.\n"))
+    while not session.done:
+        try:
+            line = input(f"  [{session.fleet.name} | {session.remaining} pts]> ")
+        except (EOFError, KeyboardInterrupt):
+            print()
+            return
+        output = session.execute(line)
+        if output:
+            print(output)

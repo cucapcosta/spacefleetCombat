@@ -175,3 +175,16 @@ def test_load_over_budget_rejected(tmp_path: Path) -> None:
     out = tiny.execute(f"load {path}")
     assert "budget" in out.lower()
     assert tiny.fleet.ships == []
+
+
+def test_run_fleet_builder_is_exported() -> None:
+    from spacefleet.cli.fleet_builder_cmd import run_fleet_builder
+
+    assert callable(run_fleet_builder)
+
+
+def test_app_menu_mentions_fleet_builder() -> None:
+    from spacefleet.cli.app import MENU
+
+    assert "Fleet Builder" in MENU
+    assert "not yet available" not in MENU
