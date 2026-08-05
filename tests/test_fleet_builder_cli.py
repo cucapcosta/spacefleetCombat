@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from spacefleet.cli.fleet_builder_cmd import FleetBuilderSession
 from spacefleet.core.types import Faction
 from spacefleet.data.doctrine_registry import DoctrineRegistry
 from spacefleet.data.hull_registry import HullRegistry
 from spacefleet.data.upgrade_registry import UpgradeRegistry
 from spacefleet.data.weapon_registry import WeaponRegistry
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def setup_function() -> None:
@@ -86,3 +91,87 @@ def test_done_flag_and_unknown_command() -> None:
     assert not s.done
     s.execute("done")
     assert s.done
+
+
+def test_equip_slot_upgrade_doctrine_flow() -> None:
+    s = _session()
+    s.execute("buy dauntless_light_cruiser ISS Flag")
+    out = s.execute("equip 1")
+    assert "ISS Flag" in out
+    assert "slot 1 macro_cannon_3" != ""  # entering equip mode
+    out = s.execute("slot 1 macro_cannon_3")
+    assert "macro_cannon_3" in out
+    out = s.execute("upgrade reinforced_prow")
+    assert "reinforced_prow" in out
+    out = s.execute("doctrine commissariat")
+    assert "commissariat" in out
+    out = s.execute("show")
+    assert "macro_cannon_3" in out and "reinforced_prow" in out
+    s.execute("back")
+    ship = s.fleet.ships[0]
+    assert ship.weapons[1] == "macro_cannon_3"
+    assert ship.upgrade_ids == ["reinforced_prow"]
+    assert ship.doctrine_id == "commissariat"
+
+
+def test_equip_rejects_illegal_and_reverts() -> None:
+    s = _session()
+    s.execute("buy sword_frigate ISS Blade")
+    s.execute("equip 1")
+    out = s.execute("slot 1 macro_cannon_3")  # medium gun in small slot
+    assert "too large" in out or "not allowed" in out.lower() or "slot" in out.lower()
+    assert s.fleet.ships[0].weapons == {}  # reverted
+
+
+def test_unslot_and_remove_upgrade() -> None:
+    s = _session()
+    s.execute("buy sword_frigate ISS Blade")
+    s.execute("equip 1")
+    s.execute("slot 1 macro_cannon_1")
+    s.execute("upgrade reinforced_prow")
+    s.execute("unslot 1")
+    s.execute("remove-upgrade reinforced_prow")
+    assert s.fleet.ships[0].weapons == {}
+    assert s.fleet.ships[0].upgrade_ids == []
+
+
+def test_default_command_applies_hull_kit() -> None:
+    s = _session()
+    s.execute("buy cobra_destroyer ISS Cobra")
+    s.execute("equip 1")
+    out = s.execute("default")
+    assert "default" in out.lower()
+    assert s.fleet.ships[0].weapons == {1: "macro_cannon_1", 2: "standard_torpedoes"}
+
+
+def test_flagship_command() -> None:
+    s = _session()
+    s.execute("buy sword_frigate ISS One")
+    s.execute("buy sword_frigate ISS Two")
+    s.execute("equip 2")
+    out = s.execute("flagship")
+    assert "flagship" in out.lower()
+    assert s.fleet.flagship_index == 1
+
+
+def test_save_and_load_round_trip(tmp_path: Path) -> None:
+    s = _session()
+    s.execute("buy sword_frigate ISS Blade")
+    path = tmp_path / "myfleet.json"
+    out = s.execute(f"save {path}")
+    assert str(path) in out
+    s2 = _session()
+    out = s2.execute(f"load {path}")
+    assert "ISS Blade" in out or "loaded" in out.lower()
+    assert s2.fleet.ships[0].name == "ISS Blade"
+
+
+def test_load_over_budget_rejected(tmp_path: Path) -> None:
+    s = _session()
+    s.execute("buy sword_frigate ISS Blade")
+    path = tmp_path / "f.json"
+    s.execute(f"save {path}")
+    tiny = FleetBuilderSession(Faction.IMPERIAL_NAVY, budget=5)
+    out = tiny.execute(f"load {path}")
+    assert "budget" in out.lower()
+    assert tiny.fleet.ships == []

@@ -23,6 +23,8 @@ from spacefleet.models.fleet_spec import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from spacefleet.core.types import Faction
 
 _HELP = """\
@@ -150,18 +152,152 @@ class FleetBuilderSession:
     # ── Equip sub-mode (Task 7) ───────────────────────────────
 
     def _enter_equip(self, args: list[str]) -> str:
-        return "not yet implemented"
+        idx = self._ship_index(args)
+        if idx is None:
+            return "usage: equip <ship number>"
+        self._equip_index = idx
+        return f"Equipping '{self.fleet.ships[idx].name}' — {self._show_ship()}"
 
     def _execute_equip(self, cmd: str, args: list[str]) -> str:
-        return "not yet implemented"
+        assert self._equip_index is not None
+        ship = self.fleet.ships[self._equip_index]
+        if cmd in ("back", "done"):
+            self._equip_index = None
+            return self._status()
+        if cmd == "show":
+            return self._show_ship()
+        if cmd == "help":
+            return (
+                "Equip commands: show | slot <n> <weapon_id> | unslot <n>"
+                " | upgrade <id> | remove-upgrade <id> | doctrine <id|none>"
+                " | flagship | default | back"
+            )
+        if cmd == "slot" and len(args) == 2 and args[0].isdigit():
+            return self._mutate(
+                ship,
+                lambda: ship.weapons.__setitem__(int(args[0]), args[1]),
+                f"Equipped {args[1]} in slot {args[0]}.",
+            )
+        if cmd == "unslot" and len(args) == 1 and args[0].isdigit():
+            slot = int(args[0])
+            if slot not in ship.weapons:
+                return f"slot {slot} is empty"
+            return self._mutate(
+                ship,
+                lambda: ship.weapons.pop(slot),
+                f"Cleared slot {slot}.",
+            )
+        if cmd == "upgrade" and len(args) == 1:
+            if args[0] in ship.upgrade_ids:
+                return f"{args[0]} already installed"
+            return self._mutate(
+                ship,
+                lambda: ship.upgrade_ids.append(args[0]),
+                f"Installed {args[0]}.",
+            )
+        if cmd == "remove-upgrade" and len(args) == 1:
+            if args[0] not in ship.upgrade_ids:
+                return f"{args[0]} is not installed"
+            return self._mutate(
+                ship,
+                lambda: ship.upgrade_ids.remove(args[0]),
+                f"Removed {args[0]}.",
+            )
+        if cmd == "doctrine" and len(args) == 1:
+            new = None if args[0] in ("none", "clear") else args[0]
+            return self._mutate(
+                ship,
+                lambda: setattr(ship, "doctrine_id", new),
+                f"Doctrine set to {new or 'none'}.",
+            )
+        if cmd == "flagship":
+            old = self.fleet.flagship_index
+            self.fleet.flagship_index = self._equip_index
+            error = self._revalidate()
+            if error:
+                self.fleet.flagship_index = old
+                return error
+            return f"'{ship.name}' is now the flagship."
+        if cmd == "default":
+            from spacefleet.models.fleet_spec import apply_default_loadout
+
+            snapshot = (dict(ship.weapons), list(ship.upgrade_ids), ship.doctrine_id)
+            apply_default_loadout(ship)
+            error = self._revalidate()
+            if error:
+                ship.weapons, ship.upgrade_ids, ship.doctrine_id = (
+                    dict(snapshot[0]),
+                    list(snapshot[1]),
+                    snapshot[2],
+                )
+                return error
+            return f"Applied default loadout. ({ship_points(ship)} pts)"
+        return f"unknown equip command: {cmd!r} (try 'help')"
+
+    def _mutate(self, ship: ShipSpec, action: Callable[[], object], ok: str) -> str:
+        """Apply a mutation transactionally: snapshot → act → validate → revert on error."""
+        snapshot = (dict(ship.weapons), list(ship.upgrade_ids), ship.doctrine_id)
+        action()
+        error = self._revalidate()
+        if error:
+            ship.weapons, ship.upgrade_ids, ship.doctrine_id = (
+                dict(snapshot[0]),
+                list(snapshot[1]),
+                snapshot[2],
+            )
+            return error
+        return f"{ok} ({self.remaining} pts remaining)"
+
+    def _show_ship(self) -> str:
+        assert self._equip_index is not None
+        ship = self.fleet.ships[self._equip_index]
+        hull = HullRegistry.get_or_none(ship.hull_id)
+        rows = [f"  {ship.name} ({ship.hull_id}) — {ship_points(ship)} pts"]
+        if hull is not None:
+            for slot in hull.weapon_slots:
+                fitted = ship.weapons.get(slot.id, "EMPTY")
+                rows.append(f"    [{slot.id}] {slot.name:24s} {slot.size.value:8s} — {fitted}")
+        rows.append(f"    upgrades: {', '.join(ship.upgrade_ids) or '(none)'}")
+        rows.append(f"    doctrine: {ship.doctrine_id or '(none)'}")
+        return "\n".join(rows)
 
     # ── Save/load (Task 7) ────────────────────────────────────
 
     def _save(self, args: list[str]) -> str:
-        return "not yet implemented"
+        from pathlib import Path
+
+        from spacefleet.persistence.fleet_save import default_fleet_dir, save_fleet
+
+        if args:
+            path = Path(" ".join(args))
+        else:
+            safe = self.fleet.name.lower().replace(" ", "_")
+            path = default_fleet_dir() / f"{safe}.json"
+        try:
+            written = save_fleet(self.fleet, path)
+        except OSError as exc:
+            return f"save failed: {exc}"
+        return f"Saved to {written}"
 
     def _load(self, args: list[str]) -> str:
-        return "not yet implemented"
+        from pathlib import Path
+
+        from spacefleet.persistence.fleet_save import load_fleet
+
+        if not args:
+            return "usage: load <path>"
+        try:
+            loaded = load_fleet(Path(" ".join(args)))
+        except FleetSpecError as exc:
+            return str(exc)
+        if loaded.faction is not self.fleet.faction:
+            return f"fleet is {loaded.faction.value}, session is {self.fleet.faction.value}"
+        backup, self.fleet = self.fleet, loaded
+        error = self._revalidate()
+        if error:
+            self.fleet = backup
+            return error
+        return f"Loaded '{self.fleet.name}' — {self._status()}"
 
     # ── Shared helpers ────────────────────────────────────────
 
