@@ -37,7 +37,7 @@ BANNER = f"""
 MENU = f"""
   {colored("[1]", C.BRIGHT_YELLOW)} Start Demo
   {colored("[2]", C.BRIGHT_YELLOW)} Connect to Server
-  {colored("[3]", C.DIM)} Configuration {dim("(not yet available)")}
+  {colored("[3]", C.BRIGHT_YELLOW)} Fleet Builder
   {colored("[4]", C.RED)} Quit
 """
 
@@ -207,7 +207,9 @@ def main() -> None:
         elif choice == "2":
             _connect_to_server()
         elif choice == "3":
-            print(f"\n  {dim('No configuration options available yet.')}\n")
+            from spacefleet.cli.fleet_builder_cmd import run_fleet_builder
+
+            run_fleet_builder()
         elif choice in ("4", "quit", "q"):
             break
         else:
