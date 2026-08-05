@@ -220,6 +220,15 @@ SHIP CONFIGURATION — "ISS Hammer of Light"
 
 ## Fleet Building Interface
 
+:::note Implementation status
+The fleet builder is implemented: app menu → `[3] Fleet Builder`. Sessions
+enforce faction-pure hulls/doctrines, weapon slot rules, upgrade slot caps
+(incl. Mechanicus +1), flagship-only upgrades, and a hard points budget
+(default 1000). Fleets save as JSON under `data/fleets/` and battle via
+`GameState.create_pve_custom`. Cruisers have 3 upgrade slots (the "2-3"
+range resolved upward).
+:::
+
 ```
 [Fleet Builder | Admiral Korvus | 1000 pts budget | 655 remaining]>
 
