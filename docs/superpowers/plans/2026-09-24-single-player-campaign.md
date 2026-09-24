@@ -534,7 +534,7 @@ git commit -m "fix: credit supported ability kills once"
   - `set_flagship(campaign: CampaignState, ship_id: str) -> None`.
   - `CampaignEconomyError(ValueError)` for readable rejection.
 
-- [ ] **Step 1: Write transaction tests**
+- [x] **Step 1: Write transaction tests**
 
 ```python
 def test_failed_purchase_does_not_consume_credit_or_id() -> None:
@@ -571,13 +571,13 @@ def test_repair_all_is_all_or_nothing() -> None:
 
 Also cover full-cost purchase, no refund on discard, flagship becoming `None` after loss/discard, explicit flagship reassignment, flagship-only upgrades, removal legality, unsupported equipment, and re-equip rejection when `new_hull_max - hull_damage <= 0`.
 
-- [ ] **Step 2: Run and confirm red**
+- [x] **Step 2: Run and confirm red**
 
 Run: `pytest tests/test_campaign_economy.py -q`
 
 Expected: FAIL on missing module.
 
-- [ ] **Step 3: Implement validate-then-commit operations**
+- [x] **Step 3: Implement validate-then-commit operations**
 
 Do not add a generic transaction abstraction. Each function computes a candidate and exact charge, validates affordability, calls `validate_campaign_state(candidate)` for interval-safe invariants, and then assigns affected fields and credits in the final lines. `set_flagship` recomputes `FleetSpec.flagship_index` and revalidates flagship-only equipment; pre-battle validation additionally requires a fleet and flagship. Compare equipment by weapon slot plus upgrade IDs plus doctrine; unchanged items produce neither charge nor refund. Hull ID changes in `reequip_ship` are rejected. Discarding the last ship and losing/discarding the flagship are valid interval states; they save successfully, while Task 2 blocks combat until a ship is bought or a flagship selected.
 
@@ -590,13 +590,13 @@ for ship in campaign.roster:
 campaign.credits -= total
 ```
 
-- [ ] **Step 4: Run focused tests**
+- [x] **Step 4: Run focused tests**
 
 Run: `pytest tests/test_campaign_economy.py tests/test_campaign_rules.py tests/test_fleet_spec_validation.py -q`
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/spacefleet/campaign/economy.py tests/test_campaign_economy.py
