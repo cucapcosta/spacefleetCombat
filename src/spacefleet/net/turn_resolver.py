@@ -450,9 +450,7 @@ def resolve_turn(
     for proj, target, result in impacts:
         emit(SalvoImpactEvent(proj=proj, target=target, result=result))
         if result.target_destroyed:
-            _credit_destroyed_ship(
-                state, target.id, killer_ship_id=proj.attacker_id, emit=emit
-            )
+            _credit_destroyed_ship(state, target.id, killer_ship_id=proj.attacker_id, emit=emit)
 
     # Cleanup expired projectiles
     expired = cleanup_projectiles(state.projectiles)

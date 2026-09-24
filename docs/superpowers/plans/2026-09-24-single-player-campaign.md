@@ -1,6 +1,6 @@
 # Single-Player Campaign Implementation Plan
 
-**Status:** Approved by the user; implementation in progress.
+**Status:** Complete; all nine tasks implemented and accepted on 2026-09-24.
 
 > **For agentic workers:** After user approval, follow this plan task by task with bounded Sol implementation workers, Terra review gates, and Astra making architectural or consequential ambiguity decisions. Workers must not spawn subagents. Stop and report to Astra if a task requires a new architecture, broader combat rewrite, security/concurrency decision, or substantially more code than described here.
 
@@ -876,7 +876,7 @@ git commit -m "feat: add campaign interval and continuation flow"
 - Consumes: public campaign/CLI APIs from Tasks 1-8.
 - Produces no new production abstraction.
 
-- [ ] **Step 1: Add the two-battle no-server integration test**
+- [x] **Step 1: Add the two-battle no-server integration test**
 
 This test must keep the real `LocalBattleController`, `AIController`, and imported `resolve_turn`; it controls positions, target durability, and dice only. It must not monkeypatch the controller or resolver and must close both returned outcomes.
 
@@ -938,13 +938,13 @@ def test_two_real_controller_battles_link_store_and_save_load(
 
 Add one parametrized five-result progression test that closes four victories then verifies the fifth victory completes, while defeat variants stop without duplicate awards. Do not duplicate lower-level validation already covered by focused tests.
 
-- [ ] **Step 2: Run campaign tests first**
+- [x] **Step 2: Run campaign tests first**
 
 Run: `pytest tests/test_campaign_rules.py tests/test_campaign_battle.py tests/test_local_battle_controller.py tests/test_campaign_kill_credit.py tests/test_campaign_economy.py tests/test_campaign_progression.py tests/test_campaign_save.py tests/test_campaign_cli.py tests/test_campaign_integration.py -q`
 
 Expected: PASS.
 
-- [ ] **Step 3: Run required repository checks once**
+- [x] **Step 3: Run required repository checks once**
 
 Run:
 
@@ -957,7 +957,7 @@ uv run --no-sync pytest
 
 Expected: PASS. Record any pre-existing failure separately with the exact command and evidence that the campaign-focused suite remains green; do not broaden this feature into unrelated cleanup.
 
-- [ ] **Step 4: Perform the required short manual play**
+- [x] **Step 4: Perform the required short manual play**
 
 Run: `python -m spacefleet`.
 
@@ -970,7 +970,7 @@ Manual checklist:
 5. Finish a short controlled victory, inspect damage/XP/credits/casualties, repair and buy, save, restart, and Continue.
 6. Exercise surrender or a controlled defeat and verify zero reward and a clear final report.
 
-- [ ] **Step 5: Commit acceptance coverage**
+- [x] **Step 5: Commit acceptance coverage**
 
 ```bash
 git add tests/test_campaign_integration.py
@@ -986,3 +986,14 @@ git commit -m "test: cover campaign progression end to end"
 ## Execution and review gate
 
 Do not begin implementation until the user reviews and approves this plan. After approval, Astra assigns each task to a bounded Sol worker in order, requests Terra review for the completed task, resolves findings, and advances only after its acceptance criteria and targeted tests pass. Astra performs the final spec-coverage/type review and accepts the full required-check output.
+
+
+## Acceptance evidence — 2026-09-24
+
+- Baseline after installing development tools: 344 tests passed; Ruff lint/format and mypy passed. No dependency or lockfile change was required.
+- Final full suite: 520 tests passed. Ruff lint passed, Ruff format checked 157 files, and mypy checked 83 source files. Two campaign kill-credit files required formatting only during final verification.
+- Terra reviewed the implementation milestones and integration coverage. Findings addressed: terminal battle rejection, stable/runtime mapping at closure, required ability targets, target ID visibility, hull-only purchases, complete post-battle reports, and terminal save retry.
+- Terminal smoke used `python -m spacefleet` with both factions and explicit seeds. Checked creation/cancellation, initial builder balance, unsupported catalog explanations, store confirmation/cancellation, refit refunds, inspection, invalid orders, stance, movement/fire/strike, review/revise/confirm, abandonment/replay, Continue, and surrender with zero reward.
+- Controlled real-resolver play checked commander ability use, victory, persistent damage and XP, repair, purchase, save/restart, a second victory, and the refreshed report. Automated integration additionally covers five victories through campaign completion.
+- Interval `buy` purchases a bare hull; weapons are equipped separately. This keeps campaign-eligible hulls available even when their default kits include unsupported weapons.
+- Balance of the five unmodified encounters remains a playtesting task. Mid-battle saves and the unsupported mechanics listed in the approved scope remain deferred.

@@ -24,9 +24,7 @@ def _mixed_state() -> GameState:
     return GameState.create_mixed(["imp"], ["cha"], ships_per_player=1, seed=1)
 
 
-def _prepare_warp_rift(
-    state: GameState, target_id: str
-) -> tuple[str, AbilityOrder]:
+def _prepare_warp_rift(state: GameState, target_id: str) -> tuple[str, AbilityOrder]:
     caster_id = state.player_ships["cha"][0]
     caster = state.ships[caster_id]
     target = state.ships[target_id]
@@ -74,9 +72,7 @@ def test_warp_rift_enemy_kill_credits_casting_fleet() -> None:
 def test_warp_rift_friendly_kill_has_no_credit() -> None:
     state = _mixed_state()
     friendly_id = next(
-        ship_id
-        for ship_id in state.ai_ships
-        if state.ships[ship_id].faction == Faction.CHAOS_FLEET
+        ship_id for ship_id in state.ai_ships if state.ships[ship_id].faction == Faction.CHAOS_FLEET
     )
     _, order = _prepare_warp_rift(state, friendly_id)
 
@@ -95,12 +91,8 @@ def test_destroyed_ship_is_credited_and_emitted_only_once() -> None:
     state.ships[target_id].take_hull_damage(state.ships[target_id].hull_current)
     events, emit = _collect_events()
 
-    turn_resolver._credit_destroyed_ship(
-        state, target_id, killer_ship_id=attacker_id, emit=emit
-    )
-    turn_resolver._credit_destroyed_ship(
-        state, target_id, killer_ship_id=attacker_id, emit=emit
-    )
+    turn_resolver._credit_destroyed_ship(state, target_id, killer_ship_id=attacker_id, emit=emit)
+    turn_resolver._credit_destroyed_ship(state, target_id, killer_ship_id=attacker_id, emit=emit)
 
     assert state.kills["cha"] == 1
     assert len([event for event in events if isinstance(event, DestroyedEvent)]) == 1
@@ -161,9 +153,7 @@ def test_destroyed_ship_identity_disambiguates_duplicate_names() -> None:
     state.ships[second_id].take_hull_damage(state.ships[second_id].hull_current)
     events, emit = _collect_events()
 
-    turn_resolver._credit_destroyed_ship(
-        state, second_id, killer_ship_id=attacker_id, emit=emit
-    )
+    turn_resolver._credit_destroyed_ship(state, second_id, killer_ship_id=attacker_id, emit=emit)
 
     destroyed = [event for event in events if isinstance(event, DestroyedEvent)]
     assert [event.ship.id for event in destroyed] == [second_id]
