@@ -682,7 +682,7 @@ git commit -m "feat: close campaign battles idempotently"
 - Consumes: Task 1 campaign records/rules and `fleet_to_dict`/`fleet_from_dict` shapes for nested `ShipSpec` data.
 - Produces `CAMPAIGN_SAVE_VERSION = 1`, `CampaignSaveError(ValueError)`, `campaign_to_dict`, `campaign_from_dict`, `save_campaign(campaign: CampaignState, path: Path) -> Path`, `load_campaign(path: Path) -> CampaignState`, and `default_campaign_path() -> Path` returning `Path.cwd() / "campaign-save.json"`.
 
-- [ ] **Step 1: Write round-trip and failure tests**
+- [x] **Step 1: Write round-trip and failure tests**
 
 ```python
 def test_campaign_round_trip_preserves_stable_state(tmp_path: Path) -> None:
@@ -733,17 +733,17 @@ def test_failed_replace_preserves_old_file_and_retry_succeeds(tmp_path, monkeypa
 
 Also reject bool-as-int, non-finite floats (`NaN`, positive/negative infinity), negative/out-of-range integers, duplicate/non-monotonic IDs, a non-`None` missing flagship reference, wrong faction, non-empty traits, unsupported equipment/loadout, invalid commander catalog IDs, malformed nested collections, and a stale `next_ship_id`. Add successful round trips for (a) an active interval with surviving ships and `flagship_id=None` after flagship loss, and (b) a terminal defeated campaign with an empty roster. Verify no orphan temp remains after write failure.
 
-- [ ] **Step 2: Run and confirm red**
+- [x] **Step 2: Run and confirm red**
 
 Run: `pytest tests/test_campaign_save.py -q`
 
 Expected: FAIL on missing module.
 
-- [ ] **Step 3: Implement strict decoding and invariant validation**
+- [x] **Step 3: Implement strict decoding and invariant validation**
 
 Decode fields with explicit `type(value) is int/str/list/dict` checks and `math.isfinite` for every accepted float before constructing records. Then call `validate_campaign_state(campaign)`—without battle readiness—to validate IDs/references/counter/credits/encounter/status/faction, each ship, campaign eligibility, commander identity/faction/loadout, empty traits, and hull damage against the current catalog maximum. This preserves valid post-loss intervals. Wrap JSON, I/O, enum, catalog, and validation failures in readable `CampaignSaveError` messages containing the path/context.
 
-- [ ] **Step 4: Implement same-directory atomic replacement**
+- [x] **Step 4: Implement same-directory atomic replacement**
 
 ```python
 fd, temp_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
@@ -761,13 +761,13 @@ except OSError as exc:
 
 Create the parent before the temp file. Never delete or truncate the destination first.
 
-- [ ] **Step 5: Run focused persistence tests**
+- [x] **Step 5: Run focused persistence tests**
 
 Run: `pytest tests/test_campaign_save.py tests/test_fleet_save.py tests/test_campaign_rules.py -q`
 
 Expected: PASS; existing fleet save format remains unchanged.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/spacefleet/persistence/campaign_save.py src/spacefleet/persistence/__init__.py \
