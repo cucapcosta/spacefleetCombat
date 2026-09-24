@@ -38,7 +38,7 @@ MENU = f"""
   {colored("[1]", C.BRIGHT_YELLOW)} Start Demo
   {colored("[2]", C.BRIGHT_YELLOW)} Connect to Server
   {colored("[3]", C.BRIGHT_YELLOW)} Fleet Builder
-  {colored("[4]", C.BRIGHT_YELLOW)} New Campaign
+  {colored("[4]", C.BRIGHT_YELLOW)} Campaign
   {colored("[5]", C.RED)} Quit
 """
 
@@ -212,9 +212,9 @@ def main() -> None:
 
             run_fleet_builder()
         elif choice == "4":
-            from spacefleet.cli.campaign_cmd import run_new_campaign
+            from spacefleet.cli.campaign_cmd import run_campaign_menu
 
-            run_new_campaign()
+            run_campaign_menu()
         elif choice in ("5", "quit", "q"):
             break
         else:

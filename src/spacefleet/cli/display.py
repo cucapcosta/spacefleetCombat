@@ -222,8 +222,9 @@ def format_contact(
             rel = relative_bearing(observer.heading, brg)
             direction = _direction_label(rel)
             tag_color = C.CYAN if friendly else C.YELLOW
+            target_id = f" (id={ship.id})" if ci.targetable else ""
             return (
-                f"  {colored('[CONTACT]', tag_color)} {ci.display_name}"
+                f"  {colored('[CONTACT]', tag_color)} {ci.display_name}{target_id}"
                 f" — bearing {brg:.0f}° ({direction}),"
                 f" range {d:.0f} GU"
             )
@@ -242,10 +243,12 @@ def format_contact(
         else:
             tag = colored("[IDENTIFIED]", C.GREEN)
             name = colored(ship.name, C.BRIGHT_RED)
+        target_id = f" (id={ship.id})" if ci.targetable else ""
 
         return (
             f"  {tag}"
             f" {name}"
+            f"{target_id}"
             f" [{ship.hull.classification.value}]"
             f" — bearing {brg:.0f}° ({direction}),"
             f" range {d:.0f} GU\n"

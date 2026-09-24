@@ -792,7 +792,7 @@ git commit -m "feat: add atomic versioned campaign saves"
 - Consumes: all earlier campaign APIs; injected `save_path`, `input_fn`, `output_fn`, and controller factory for tests.
 - Produces `run_campaign_menu(*, save_path: Path | None = None, input_fn: Callable[[str], str] = input, output_fn: Callable[[str], None] = print, controller_factory: Callable[[BattleSession], LocalBattleController] = LocalBattleController) -> None`; the main app routes one stable menu item to it.
 
-- [ ] **Step 1: Write CLI state-machine tests**
+- [x] **Step 1: Write CLI state-machine tests**
 
 ```python
 def test_continue_loads_last_interval_and_two_battles_link_through_store(monkeypatch, tmp_path) -> None:
@@ -833,13 +833,13 @@ def test_new_campaign_cancel_replacement_preserves_existing_save(tmp_path) -> No
 
 Also cover: no-save Continue message; invalid/unknown save leaves current menu/session intact; seed cancellation; unsupported store catalog explanations; discard confirmation cancellation; insufficient-credit errors; explicit save; autosave after each confirmed economy operation; autosave after closure; failed autosave warning plus successful retry; no battle with empty roster or missing flagship; select new flagship after loss; battle quit returns to unchanged interval; victory five and every defeat report terminate cleanly.
 
-- [ ] **Step 2: Run and confirm red**
+- [x] **Step 2: Run and confirm red**
 
 Run: `pytest tests/test_campaign_cli.py -q`
 
 Expected: FAIL because the initial one-battle seam lacks interval/store/persistence flow.
 
-- [ ] **Step 3: Expand the existing command module into the interval loop**
+- [x] **Step 3: Expand the existing command module into the interval loop**
 
 Keep I/O thin. The interval displays encounter/preset, roster damage and veterancy, commander level/XP/loadout, flagship, and credits. Commands delegate to Task 5 functions: buy, equip/remove weapon/upgrade/doctrine, discard, repair one/all, flagship, battle, save, status/help, back. Before every confirmed destructive action, render the exact cost/refund/loss; cancellation makes no service call.
 
@@ -847,13 +847,13 @@ On New with an existing save, require explicit replacement confirmation before b
 
 On `battle`, call `validate_campaign_state(campaign, require_battle_ready=True)`, build and run a session. For `ABANDONED`, do not call `close_battle` or save. Otherwise close once, print the `BattleReport`, autosave the closed interval/status, and either return to interval, show campaign completion, or show defeat.
 
-- [ ] **Step 4: Run CLI and cross-layer focused tests**
+- [x] **Step 4: Run CLI and cross-layer focused tests**
 
 Run: `pytest tests/test_campaign_cli.py tests/test_campaign_economy.py tests/test_campaign_save.py tests/test_local_battle_controller.py -q`
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/spacefleet/cli/campaign_cmd.py src/spacefleet/cli/app.py tests/test_campaign_cli.py

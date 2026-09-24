@@ -34,15 +34,17 @@ Local battle commands:
   ahead [speed]                  set speed (full speed when omitted)
   stop                           set speed to zero
   turn <port|starboard> <deg>    queue a turn
-  strike <target> <subsystem>    attempt a lightning strike
+  strike <target_id> <subsystem> attempt a lightning strike
   pass                           submit no ship action
-  stance <name>                  queue a stance change for confirmation
+  stance [name]                  queue a stance; stance alone lists choices
   status | scan | weapons        inspect without advancing
-  ability <ability_id> [target]  use one commander ability
+  ability <ability_id> [target_id] use one commander ability
   ability <ability_id> at <x> <y>
   ability skip                   submit no commander ability
   review | revise | confirm      inspect, discard, or resolve queued orders
   surrender | quit               end or abandon the battle
+
+Use shown target IDs for strike and targeted abilities.
 """
 
 
@@ -125,6 +127,7 @@ class LocalBattleController:
             ship = state.ships[ship_id]
             while True:
                 self.output(self.renderer.render_ship_brief(ship, state, player_id))
+                self.output(f"  Ship ID: {ship.id}")
                 prompt = self.renderer.render_prompt(
                     ship,
                     index,

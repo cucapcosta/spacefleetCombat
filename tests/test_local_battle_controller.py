@@ -3,21 +3,25 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import TYPE_CHECKING
 
+import pytest
+
 from spacefleet.campaign.battle import BattleSession, build_battle
 from spacefleet.campaign.models import BattleOutcome
 from spacefleet.cli import campaign_cmd, local_battle
 from spacefleet.cli.action_parser import parse_action_command
+from spacefleet.cli.display import format_contact
 from spacefleet.cli.local_battle import LocalBattleController
 from spacefleet.commander.commander import AbilityState
-from spacefleet.core.types import Stance
+from spacefleet.core.types import DetectionLevel, Stance, Vector2D
 from spacefleet.net.commands import AbilityOrder, Command
 from spacefleet.net.server_renderer import ServerRenderer
 from spacefleet.net.turn_resolver import TurnLog
 from spacefleet.phases.command_phase import AbilityRejectedEvent
+from spacefleet.spatial.detection import ContactInfo
 from tests.campaign_helpers import ScriptedIO, campaign_state, supported_fleet
 
 if TYPE_CHECKING:
-    import pytest
+    from pathlib import Path
 
     from spacefleet.net.game_state import GameState
 
@@ -282,6 +286,76 @@ def test_surrender_and_quit_end_without_resolving() -> None:
     assert campaign == before
 
 
+def test_local_order_prompt_shows_own_runtime_ship_id() -> None:
+    session = build_battle(campaign_state())
+    ship_id = session.state.player_ships[session.player_id][0]
+    io = ScriptedIO(["quit"])
+
+    outcome = LocalBattleController(
+        session,
+        input_fn=io.input,
+        output_fn=io.output,
+    ).run()
+
+    assert outcome is BattleOutcome.ABANDONED
+    assert f"Ship ID: {ship_id}" in "\n".join(io.outputs)
+
+
+@pytest.mark.parametrize("level", [DetectionLevel.CONTACT, DetectionLevel.IDENTIFIED])
+def test_targetable_sensor_contact_shows_runtime_target_id(level: DetectionLevel) -> None:
+    session = build_battle(campaign_state())
+    observer = session.state.ships[session.state.player_ships[session.player_id][0]]
+    target = session.state.ships[session.enemy_runtime_ids[0]]
+    contact = ContactInfo(
+        ship=target,
+        detection_level=level,
+        true_distance=20.0,
+        true_bearing=0.0,
+        display_position=target.position,
+        display_name="Escort-class" if level is DetectionLevel.CONTACT else target.name,
+        targetable=True,
+        accuracy_penalty=level is DetectionLevel.CONTACT,
+    )
+
+    rendered = format_contact(target, observer, contact_info=contact)
+
+    assert f"id={target.id}" in rendered
+
+
+def test_blip_contact_does_not_reveal_runtime_id_or_identity() -> None:
+    session = build_battle(campaign_state())
+    observer = session.state.ships[session.state.player_ships[session.player_id][0]]
+    target = session.state.ships[session.enemy_runtime_ids[0]]
+    contact = ContactInfo(
+        ship=target,
+        detection_level=DetectionLevel.BLIP,
+        true_distance=100.0,
+        true_bearing=0.0,
+        display_position=Vector2D(0.0, 100.0),
+        display_name="Unknown contact",
+        targetable=False,
+        accuracy_penalty=False,
+    )
+
+    rendered = format_contact(target, observer, contact_info=contact)
+
+    assert target.id not in rendered
+    assert target.name not in rendered
+    assert "Unknown contact" in rendered
+
+
+def test_ship_brief_does_not_reveal_undetected_enemy_id() -> None:
+    session = build_battle(campaign_state())
+    observer = session.state.ships[session.state.player_ships[session.player_id][0]]
+    for enemy_id in session.enemy_runtime_ids:
+        session.state.ships[enemy_id].position = Vector2D(10_000.0, 10_000.0)
+
+    rendered = ServerRenderer().render_ship_brief(observer, session.state, session.player_id)
+
+    for enemy_id in session.enemy_runtime_ids:
+        assert enemy_id not in rendered
+
+
 def test_help_explains_local_battle_syntax() -> None:
     session = build_battle(campaign_state())
     io = ScriptedIO(["help", "quit"])
@@ -290,8 +364,10 @@ def test_help_explains_local_battle_syntax() -> None:
 
     output = "\n".join(io.outputs)
     assert "fire <weapon#> <bearing>" in output
-    assert "stance <name>" in output
+    assert "stance [name]" in output
+    assert "stance alone lists choices" in output
     assert "ability <ability_id>" in output
+    assert "shown target IDs" in output
     assert "review" in output
 
 
@@ -366,25 +442,28 @@ def test_default_renderer_outputs_turn_events(monkeypatch: pytest.MonkeyPatch) -
     assert "Speed" in "\n".join(io.outputs)
 
 
-def test_run_new_campaign_builds_and_runs_first_battle(
+def test_run_campaign_menu_builds_and_runs_first_battle(
     monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
     fleet = supported_fleet()
     seen: dict[str, BattleSession] = {}
-    answers = iter(["1", "Admiral Voss", "19"])
-    monkeypatch.setattr("builtins.input", lambda _prompt: next(answers))
     monkeypatch.setattr(campaign_cmd, "run_fleet_builder", lambda **_kwargs: fleet)
 
-    class Controller:
+    class Controller(LocalBattleController):
         def __init__(self, session: BattleSession) -> None:
             seen["session"] = session
 
         def run(self) -> BattleOutcome:
             return BattleOutcome.ABANDONED
 
-    monkeypatch.setattr(campaign_cmd, "LocalBattleController", Controller)
-
-    campaign_cmd.run_new_campaign()
+    io = ScriptedIO(["new", "imperial_navy", "Admiral Voss", "19", "battle", "back"])
+    campaign_cmd.run_campaign_menu(
+        save_path=tmp_path / "campaign.json",
+        input_fn=io.input,
+        output_fn=io.output,
+        controller_factory=Controller,
+    )
 
     session = seen["session"]
     assert session.battle_id == "19:1"
