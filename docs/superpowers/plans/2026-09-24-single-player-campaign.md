@@ -241,7 +241,7 @@ git commit -m "feat: add campaign roster and eligibility rules"
   - `build_battle(campaign: CampaignState) -> BattleSession`.
   - Internal `_runtime_commander_copy(saved: Commander) -> Commander`, which copies persistent identity/progression/loadout and initializes fresh charges with no cooldowns, preparations, or buffs.
 
-- [ ] **Step 1: Write failing assembly tests**
+- [x] **Step 1: Write failing assembly tests**
 
 ```python
 def test_build_battle_restores_identity_damage_crew_and_commander_before_passives() -> None:
@@ -268,13 +268,13 @@ def test_mapping_survives_roster_reorder() -> None:
 
 Also test deterministic battle IDs/seeds, encounter-specific preset, runtime flagship mapping, fresh shields/morale/fires/subsystems/stance/cooldowns, and rejection before mutating a `GameState` when damage or eligibility is invalid. Assert `build_battle` calls `validate_campaign_state(campaign, require_battle_ready=True)`, so empty-roster and missing-flagship intervals are loadable but cannot start combat.
 
-- [ ] **Step 2: Run and confirm red**
+- [x] **Step 2: Run and confirm red**
 
 Run: `pytest tests/test_campaign_battle.py -q`
 
 Expected: FAIL because `campaign.battle` does not exist.
 
-- [ ] **Step 3: Implement assembly with one-time zipping**
+- [x] **Step 3: Implement assembly with one-time zipping**
 
 ```python
 player_ids = add_custom_fleet(state, "player", campaign_fleet_spec(campaign), start_x=-50)
@@ -297,13 +297,13 @@ state.passives = PassiveBus.build(state)
 
 Use `battle_id = f"{campaign.seed}:{campaign.encounter}"` and battle seed `campaign.seed + campaign.encounter`. Never reconstruct stable identity from runtime IDs, names, or list positions after this point.
 
-- [ ] **Step 4: Run focused assembly tests**
+- [x] **Step 4: Run focused assembly tests**
 
 Run: `pytest tests/test_campaign_battle.py tests/test_custom_fleet_assembly.py tests/test_passive_bus_dispatch.py -q`
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/spacefleet/campaign/battle.py src/spacefleet/campaign/__init__.py \
