@@ -337,7 +337,7 @@ git commit -m "feat: materialize campaign fleets into battles"
   - `LocalBattleController(session: BattleSession, *, input_fn: Callable[[str], str] = input, output_fn: Callable[[str], None] = print, renderer: ServerRenderer | None = None, ai: AIController | None = None, turn_limit: int = 60)` and `.run() -> BattleOutcome`.
   - Initial `run_new_campaign(save_path: Path | None = None) -> None` seam in `campaign_cmd.py`; Task 8 expands it into the full loop.
 
-- [ ] **Step 1: Write controller tests with scripted input**
+- [x] **Step 1: Write controller tests with scripted input**
 
 ```python
 def test_invalid_and_query_input_do_not_advance_then_ability_reaches_resolver(monkeypatch) -> None:
@@ -388,19 +388,19 @@ def test_quit_mid_battle_abandons_without_mutating_campaign_interval() -> None:
 
 Also test same seed + same orders produce equivalent turn logs/state; queued stance changes apply only on `confirm`; `revise` discards queued orders/stances; surrender; renderer output; cooldown `1` accepted during preflight because command phase ticks before dispatch; and an ability that becomes invalid during resolution emits/renderers an `AbilityRejectedEvent` rather than rewinding the turn.
 
-- [ ] **Step 2: Run and confirm red**
+- [x] **Step 2: Run and confirm red**
 
 Run: `pytest tests/test_local_battle_controller.py tests/test_command_phase_validation.py -q`
 
 Expected: FAIL on missing parser/controller and public ability validation.
 
-- [ ] **Step 3: Extract only the shared action parser and pure ability preflight**
+- [x] **Step 3: Extract only the shared action parser and pure ability preflight**
 
 Move the network client's existing CLI token conversion into `cli/action_parser.py` without changing accepted syntax. Keep authoritative validation in `validate_command`.
 
 Extract the checks currently embedded in `_dispatch` into `validate_ability_order`. The pure function must not create `AbilityState`, consume charges, mutate cooldown, or deep-copy state. For local preflight only, treat `cooldown_remaining == 1` as available because the resolver ticks it before dispatch; `_dispatch` calls the same validator after the real tick with `cooldown_will_tick=False`.
 
-- [ ] **Step 4: Implement the collect-review-confirm loop**
+- [x] **Step 4: Implement the collect-review-confirm loop**
 
 For each alive player ship, accept free `status`, `scan`, `weapons`, `help`, and `stance` queries without advancing. Convert costed commands with the shared parser, then pass the raw mapping to `validate_command`. Collect at most one ability order; `ability skip` explicitly submits none. Queue stance choices as values, not mutations. Display the full pending turn and accept `confirm`, `revise`, `surrender`, or `quit`.
 
@@ -416,17 +416,17 @@ log = resolve_turn(state, player_commands | ai_commands, ability_orders)
 
 Check victory/defeat after resolution, with simultaneous elimination resolving as `DEFEAT`. Stop at 60 completed turns with `TURN_LIMIT`. `quit` returns `ABANDONED` and prints that Continue returns to the previous interval.
 
-- [ ] **Step 5: Add the first playable menu milestone**
+- [x] **Step 5: Add the first playable menu milestone**
 
 Add one local campaign menu entry that prompts faction/name/optional integer seed, calls the builder with budget 800, creates the in-memory campaign, builds encounter 1, and runs `LocalBattleController`. At this milestone it may report the result and return to the main menu; do not add temporary combat rules or a second loop. Task 8 extends the same `campaign_cmd.py` entry into store/save/continuation.
 
-- [ ] **Step 6: Run targeted tests and one scripted smoke command**
+- [x] **Step 6: Run targeted tests and one scripted smoke command**
 
 Run: `pytest tests/test_local_battle_controller.py tests/test_command_phase_validation.py tests/test_cli_ability_command.py tests/test_ai_fleet_pilot.py -q`
 
 Expected: PASS. Then run: `python -m spacefleet` and manually reach the local battle prompt, issue `status`, one valid ship order, one supported ability, review, confirm, and quit.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add src/spacefleet/cli/action_parser.py src/spacefleet/cli/local_battle.py \

@@ -18,11 +18,11 @@ import argparse
 import asyncio
 from typing import Any
 
+from spacefleet.cli.action_parser import parse_action_command
 from spacefleet.net.protocol import (
     MSG_AUTH,
     MSG_AUTH_FAIL,
     MSG_AUTH_OK,
-    MSG_COMMAND,
     MSG_COMMAND_ACK,
     MSG_COMMAND_REJECT,
     MSG_DISPLAY,
@@ -213,74 +213,11 @@ class SpacefleetClient:
 
         Minimal client-side validation — the server validates fully.
         """
-        if cmd == "fire":
-            if len(args) < 2:
-                print("  Usage: fire <weapon#> <bearing>")
-                return None
-            try:
-                return {
-                    "type": MSG_COMMAND,
-                    "ship_id": ship_id,
-                    "action": "fire",
-                    "args": {"slot": int(args[0]), "bearing": float(args[1])},
-                }
-            except ValueError:
-                print("  Invalid fire arguments. Use: fire <number> <bearing>")
-                return None
-
-        if cmd == "ahead":
-            speed = float(args[0]) if args else None
-            return {
-                "type": MSG_COMMAND,
-                "ship_id": ship_id,
-                "action": "ahead",
-                "args": {"speed": speed},
-            }
-
-        if cmd == "stop":
-            return {
-                "type": MSG_COMMAND,
-                "ship_id": ship_id,
-                "action": "stop",
-                "args": {},
-            }
-
-        if cmd == "turn":
-            if len(args) < 2:
-                print("  Usage: turn <port|starboard> <degrees>")
-                return None
-            try:
-                return {
-                    "type": MSG_COMMAND,
-                    "ship_id": ship_id,
-                    "action": "turn",
-                    "args": {"direction": args[0], "degrees": float(args[1])},
-                }
-            except ValueError:
-                print("  Invalid turn degrees.")
-                return None
-
-        if cmd == "pass":
-            return {
-                "type": MSG_COMMAND,
-                "ship_id": ship_id,
-                "action": "pass",
-                "args": {},
-            }
-
-        if cmd == "strike":
-            if len(args) < 2:
-                print("  Usage: strike <target_id> <subsystem>")
-                print("  Subsystems: generator, deck, engines, weapons")
-                return None
-            return {
-                "type": MSG_COMMAND,
-                "ship_id": ship_id,
-                "action": "strike",
-                "args": {"target": args[0], "subsystem": args[1]},
-            }
-
-        return None
+        parsed = parse_action_command(ship_id, [cmd, *args])
+        if isinstance(parsed, str):
+            print(f"  {parsed}")
+            return None
+        return parsed
 
 
 def parse_client_args(argv: list[str] | None = None) -> argparse.Namespace:

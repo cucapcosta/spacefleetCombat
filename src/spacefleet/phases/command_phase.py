@@ -16,6 +16,7 @@ lifecycle events live here.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -128,7 +129,6 @@ def _dispatch(
     dice: DiceRoller,
 ) -> list[TurnEvent]:
     events: list[TurnEvent] = []
-    ability_def = SkillRegistry.get_active(order.ability_id)
 
     def reject(reason: str) -> list[TurnEvent]:
         events.append(
@@ -136,39 +136,14 @@ def _dispatch(
         )
         return events
 
-    if ability_def is None:
-        return reject("unknown_ability")
-    if order.ability_id not in cmdr.active_ability_ids:
-        return reject("not_owned")
-    if ability_def.faction is not None and cmdr.faction.value != ability_def.faction:
-        return reject("faction_mismatch")
-
-    flagship = fleet.flagship_in(state)
-    if flagship is None:
-        return reject("flagship_down")
-
+    rejection = validate_ability_order(state, fleet, cmdr, order)
+    if rejection is not None:
+        return reject(rejection)
+    ability_def = SkillRegistry.get_active(order.ability_id)
+    assert ability_def is not None
     st = cmdr.ability_state.setdefault(
         order.ability_id, AbilityState(remaining_charges=ability_def.charges)
     )
-    if st.remaining_charges <= 0:
-        return reject("no_charges")
-    if st.cooldown_remaining > 0:
-        return reject("cooldown")
-
-    if order.target_ship_id is not None:
-        target = state.ships.get(order.target_ship_id)
-        if target is None or not target.alive:
-            return reject("target_missing")
-        if ability_def.range_gu is not None:
-            from spacefleet.spatial.geometry import distance
-
-            if distance(flagship.position, target.position) > ability_def.range_gu:
-                return reject("out_of_range")
-    if order.target_position is not None and ability_def.range_gu is not None:
-        from spacefleet.spatial.geometry import distance
-
-        if distance(flagship.position, order.target_position) > ability_def.range_gu:
-            return reject("out_of_range")
 
     # Preparation gate — consume charge now, resolve when prep completes.
     if ability_def.preparation_turns > 0 and st.pending_order is None:
@@ -186,6 +161,78 @@ def _dispatch(
 
     events.extend(_resolve_one(state, fleet, cmdr, order.ability_id, order, dice))
     return events
+
+
+def validate_ability_order(
+    state: CoreGameState,
+    fleet: Fleet,
+    commander: Commander,
+    order: AbilityOrder,
+    *,
+    cooldown_will_tick: bool = False,
+) -> str | None:
+    """Return an ability rejection reason without mutating battle state."""
+    ability_def = SkillRegistry.get_active(order.ability_id)
+    if ability_def is None:
+        return "unknown_ability"
+    if order.ability_id not in commander.active_ability_ids:
+        return "not_owned"
+    if ability_def.faction is not None and commander.faction.value != ability_def.faction:
+        return "faction_mismatch"
+
+    flagship = fleet.flagship_in(state)
+    if flagship is None:
+        return "flagship_down"
+
+    ability_state = commander.ability_state.get(order.ability_id)
+    if ability_state is not None:
+        if ability_state.remaining_charges <= 0:
+            return "no_charges"
+        cooldown = ability_state.cooldown_remaining
+        if cooldown_will_tick and cooldown > 0:
+            cooldown -= 1
+        if cooldown > 0:
+            return "cooldown"
+
+    from spacefleet.commander.abilities import (
+        BonusBoardingAssault,
+        ConcentratedFireBuff,
+        Teleport,
+    )
+
+    if order.target_position is not None and not (
+        math.isfinite(order.target_position.x) and math.isfinite(order.target_position.y)
+    ):
+        return "invalid_position"
+    if (
+        any(
+            isinstance(step, (ConcentratedFireBuff, BonusBoardingAssault))
+            for step in ability_def.steps
+        )
+        and order.target_ship_id is None
+    ):
+        return "target_required"
+    if (
+        any(isinstance(step, Teleport) for step in ability_def.steps)
+        and order.target_position is None
+    ):
+        return "position_required"
+
+    if order.target_ship_id is not None:
+        target = state.ships.get(order.target_ship_id)
+        if target is None or not target.alive:
+            return "target_missing"
+        if ability_def.range_gu is not None:
+            from spacefleet.spatial.geometry import distance
+
+            if distance(flagship.position, target.position) > ability_def.range_gu:
+                return "out_of_range"
+    if order.target_position is not None and ability_def.range_gu is not None:
+        from spacefleet.spatial.geometry import distance
+
+        if distance(flagship.position, order.target_position) > ability_def.range_gu:
+            return "out_of_range"
+    return None
 
 
 def _resolve_one(
