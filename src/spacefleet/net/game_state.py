@@ -231,7 +231,7 @@ _CLASS_WEIGHT: dict[ShipClass, int] = {
 }
 
 
-def _build_starter_commander(fleet_id: str, faction: Faction) -> Commander:
+def build_starter_commander(fleet_id: str, faction: Faction) -> Commander:
     """A level-1 commander with a universal + faction starter loadout."""
     active = ["concentrated_fire"]
     passive = ["veteran_crews"]
@@ -271,7 +271,7 @@ def _assign_default_commander(
         flagship = state.ships[flagship_override]
     else:
         flagship = max(ships, key=lambda s: (_CLASS_WEIGHT.get(s.hull.classification, 0), s.id))
-    cmdr = _build_starter_commander(fleet_id, faction)
+    cmdr = build_starter_commander(fleet_id, faction)
     from spacefleet.commander.upgrade_effects import apply_flagship_upgrade_charges
 
     apply_flagship_upgrade_charges(cmdr, flagship)

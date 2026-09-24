@@ -1,6 +1,6 @@
 # Single-Player Campaign Implementation Plan
 
-**Status:** Ready for user review; implementation has not started.
+**Status:** Approved by the user; implementation in progress.
 
 > **For agentic workers:** After user approval, follow this plan task by task with bounded Sol implementation workers, Terra review gates, and Astra making architectural or consequential ambiguity decisions. Workers must not spawn subagents. Stop and report to Astra if a task requires a new architecture, broader combat rewrite, security/concurrency decision, or substantially more code than described here.
 
@@ -109,7 +109,7 @@ Tests create special conditions by mutating a local `campaign_state()` or `build
   - Public `build_starter_commander(fleet_id: str, faction: Faction) -> Commander`; retain `_build_starter_commander` as a compatibility alias if tests/imports require it.
   - `run_fleet_builder(*, faction: Faction | None = None, budget: int | None = None, name: str | None = None) -> FleetSpec | None`; existing no-argument menu behavior remains valid.
 
-- [ ] **Step 1: Write failing campaign-rule tests**
+- [x] **Step 1: Write failing campaign-rule tests**
 
 ```python
 def test_new_campaign_converts_builder_remainder_to_real_credits() -> None:
@@ -146,13 +146,13 @@ def test_enemy_presets_are_legal_supported_and_strictly_increase_in_cost() -> No
 
 Also pin unknown encounter `0/6`, foreign-faction catalog IDs, blocked abilities/passives, non-empty traits, `improved_augur_array`, and builder cancellation returning `None`. Pin the state boundary separately: an interval may have an empty roster or `flagship_id=None`, while `validate_campaign_state(campaign, require_battle_ready=True)` rejects either before battle.
 
-- [ ] **Step 2: Run the focused tests and confirm the expected failures**
+- [x] **Step 2: Run the focused tests and confirm the expected failures**
 
 Run: `pytest tests/test_campaign_rules.py tests/test_fleet_builder_cli.py -q`
 
 Expected: new campaign imports fail; the existing builder tests still pass.
 
-- [ ] **Step 3: Implement the records and one eligibility boundary**
+- [x] **Step 3: Implement the records and one eligibility boundary**
 
 Keep blocked IDs as immutable constants in `campaign/rules.py`. Validate catalog existence and normal faction/slot/flagship rules first, then campaign restrictions. Allocate initial IDs once in fleet order; thereafter callers use `next_ship_id` only.
 
@@ -202,17 +202,17 @@ weapons: Chaos costs are `80, 310, 470, 630, 1020`; Imperial costs are
 `90, 255, 410, 700, 1020`. Both sequences pass normal fleet validation and
 strictly increase. These checks establish legality, not gameplay balance.
 
-- [ ] **Step 4: Add the narrow builder return seam**
+- [x] **Step 4: Add the narrow builder return seam**
 
 Parameter values supplied by campaign creation skip only their corresponding prompts. `done` returns a deep-copied, validated `FleetSpec`; EOF, `KeyboardInterrupt`, or an explicit top-level `cancel` returns `None`. Keep the existing standalone builder menu working when callers ignore the return value.
 
-- [ ] **Step 5: Run focused tests**
+- [x] **Step 5: Run focused tests**
 
 Run: `pytest tests/test_campaign_rules.py tests/test_fleet_builder_cli.py tests/test_custom_fleet_assembly.py -q`
 
 Expected: PASS.
 
-- [ ] **Step 6: Commit the independently reviewable milestone**
+- [x] **Step 6: Commit the independently reviewable milestone**
 
 ```bash
 git add src/spacefleet/campaign/models.py src/spacefleet/campaign/rules.py tests/campaign_helpers.py \

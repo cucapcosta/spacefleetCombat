@@ -224,6 +224,40 @@ def test_run_fleet_builder_is_exported() -> None:
     assert callable(run_fleet_builder)
 
 
+def test_run_fleet_builder_returns_completed_fleet(monkeypatch) -> None:
+    from spacefleet.cli.fleet_builder_cmd import run_fleet_builder
+    from spacefleet.core.types import Faction
+
+    lines = iter(["buy sword_frigate ISS Blade", "done"])
+    monkeypatch.setattr("builtins.input", lambda _prompt: next(lines))
+
+    fleet = run_fleet_builder(
+        faction=Faction.IMPERIAL_NAVY,
+        budget=800,
+        name="Campaign Fleet",
+    )
+
+    assert fleet is not None
+    assert fleet.name == "Campaign Fleet"
+    assert [ship.name for ship in fleet.ships] == ["ISS Blade"]
+
+
+def test_run_fleet_builder_cancel_returns_none(monkeypatch) -> None:
+    from spacefleet.cli.fleet_builder_cmd import run_fleet_builder
+    from spacefleet.core.types import Faction
+
+    monkeypatch.setattr("builtins.input", lambda _prompt: "cancel")
+
+    assert (
+        run_fleet_builder(
+            faction=Faction.IMPERIAL_NAVY,
+            budget=800,
+            name="Campaign Fleet",
+        )
+        is None
+    )
+
+
 def test_app_menu_mentions_fleet_builder() -> None:
     from spacefleet.cli.app import MENU
 
