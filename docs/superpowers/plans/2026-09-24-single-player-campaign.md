@@ -619,7 +619,7 @@ git commit -m "feat: add atomic campaign fleet economy"
 - Consumes: `BattleSession`, `BattleOutcome`, stable/runtime map, and resolver-mutated `Commander`/`Ship` state.
 - Produces `BattleReport(battle_id: str, outcome: BattleOutcome, enemy_destroyed: int, player_survivors: int, credits_awarded: int, casualties: Sequence[str], completed_campaign: bool)` and `close_battle(campaign: CampaignState, session: BattleSession, outcome: BattleOutcome) -> BattleReport`.
 
-- [ ] **Step 1: Write closure tests**
+- [x] **Step 1: Write closure tests**
 
 ```python
 def test_victory_copies_resolver_progress_and_rewards_once() -> None:
@@ -642,23 +642,23 @@ def test_victory_copies_resolver_progress_and_rewards_once() -> None:
 
 Also test casualties removed by stable map, hull damage and veterancy copied, commander loadout/XP/level copied without battle-only buffs/cooldowns, destroyed flagship becomes `None`, defeat reward zero/status `DEFEATED`, fifth victory `COMPLETED`, simultaneous elimination defeat, surrender and turn limit no XP addition, and a session for the wrong encounter rejected unchanged.
 
-- [ ] **Step 2: Run and confirm red**
+- [x] **Step 2: Run and confirm red**
 
 Run: `pytest tests/test_campaign_progression.py -q`
 
 Expected: FAIL on missing report/closure.
 
-- [ ] **Step 3: Implement candidate-first closure**
+- [x] **Step 3: Implement candidate-first closure**
 
 Reject `ABANDONED`. Verify `session.battle_id`, encounter, active status, and `last_resolved_battle_id` before reading results. Build survivor records by inverting `player_runtime_by_campaign`; calculate reward from `initial_enemy_count` and alive enemy IDs, independent of kill attribution. Copy the already-awarded runtime commander progress once, strip active buffs/runtime ability clocks, then commit roster, commander, credits, encounter/status, and `last_resolved_battle_id` together.
 
-- [ ] **Step 4: Run closure and resolver XP tests**
+- [x] **Step 4: Run closure and resolver XP tests**
 
 Run: `pytest tests/test_campaign_progression.py tests/test_battle_end_awards_xp.py tests/test_progression_xp.py tests/test_progression_crew_tier.py -q`
 
 Expected: PASS with no duplicate XP/veterancy.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/spacefleet/campaign/battle.py tests/test_campaign_progression.py
