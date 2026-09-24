@@ -1,7 +1,7 @@
 # Campanha single-player com batalhas manuais
 
 Data: 2026-09-24
-Status: Proposta para revisão
+Status: Aprovada pelo usuário em 2026-09-24
 
 ## Objetivo e escopo
 
@@ -10,8 +10,8 @@ IA, receber recompensas, reparar e melhorar a frota e disputar o próximo
 confronto. O jogador deve conseguir testar as mecânicas durante a campanha.
 
 O usuário escolheu campanha linear com controle manual, recompensas, reparos e
-evolução da frota. As regras numéricas e os limites abaixo são propostas para
-esta primeira entrega. A escolha não aprova automaticamente essas regras.
+evolução da frota e aprovou esta especificação. As regras numéricas e os limites
+abaixo definem a primeira entrega e podem ser ajustados após testes de jogo.
 
 O objetivo posterior continua sendo completar as mecânicas e a campanha
 single-player. Esta especificação cobre a primeira entrega jogável; mapa
