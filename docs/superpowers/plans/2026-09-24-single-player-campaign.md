@@ -457,7 +457,7 @@ git commit -m "feat: add playable local fleet battles"
 - Consumes: `AreaHullDamageHitEvent`, `DestroyedEvent`, `GameState.owner_of`, and existing weapon/projectile kill paths.
 - Produces: identity-based `_credit_destroyed_ship(state, target_ship_id: str, *, killer_ship_id: str | None = None, killer_fleet_id: str | None = None, emit: Callable[[TurnEvent], None]) -> None`; `GameState.credited_destroyed_ship_ids: set[str]`.
 
-- [ ] **Step 1: Write focused kill-credit failures**
+- [x] **Step 1: Write focused kill-credit failures**
 
 ```python
 def test_warp_rift_enemy_kill_credits_casting_commander_fleet() -> None:
@@ -484,25 +484,25 @@ def test_warp_rift_enemy_kill_credits_casting_commander_fleet() -> None:
 
 Using the same explicit state setup, also pin a friendly Warp Rift kill at zero credit, a repeated `_credit_destroyed_ship` call at zero additional credit/event, an environmental/fire death with no author, a normal weapon kill, and two destroyed ships sharing a display name but carrying different IDs.
 
-- [ ] **Step 2: Run and confirm red**
+- [x] **Step 2: Run and confirm red**
 
 Run: `pytest tests/test_campaign_kill_credit.py tests/test_effect_steps.py -q`
 
 Expected: ability kill is uncredited and name-based duplicate-name behavior fails.
 
-- [ ] **Step 3: Add only the metadata required by supported area damage**
+- [x] **Step 3: Add only the metadata required by supported area damage**
 
 Add optional `target_ship_id: str | None = None` to `AttackResult` in `combat/resolution.py` and populate it in every resolver that owns the target, including both constructors in `projectile_resolution.py`; this is additive and removes all name lookup from kill credit. Extend `AreaHullDamageHitEvent` with `source_fleet_id` and `target_destroyed`. Set them in `resolve_step` from `ctx.fleet.id` and the before/after alive transition. In `resolve_turn`, inspect emitted command-phase events and pass newly destroyed targets to the identity-based helper. The lance path reads `result.target_ship_id`; the projectile collision path already owns `target.id`.
 
 The helper first checks `credited_destroyed_ship_ids`, then compares the killer fleet/ship faction with the destroyed ship faction. It always emits at most one `DestroyedEvent` and morale side effects per target, but increments a fleet's kills only for an enemy with an attributable owner. Do not redesign general damage attribution.
 
-- [ ] **Step 4: Run resolver and XP regressions**
+- [x] **Step 4: Run resolver and XP regressions**
 
 Run: `pytest tests/test_campaign_kill_credit.py tests/test_effect_steps.py tests/test_turn_resolver_movement_phase.py tests/test_battle_end_awards_xp.py -q`
 
 Expected: PASS, including the resolver's existing one-time XP guard.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/spacefleet/commander/abilities.py src/spacefleet/combat/resolution.py \

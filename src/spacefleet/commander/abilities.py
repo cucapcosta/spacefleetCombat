@@ -176,6 +176,8 @@ class AreaMoraleHitEvent(TurnEvent):
 class AreaHullDamageHitEvent(TurnEvent):
     ship_id: str
     hull_damage: int
+    source_fleet_id: str
+    target_destroyed: bool
 
 
 @dataclass
@@ -308,6 +310,7 @@ def resolve_step(step: EffectStep, ctx: StepContext) -> list[TurnEvent]:
         for target in _ships_in_radius(
             ctx.state, _order_center(ctx), step.range_gu, faction=faction
         ):
+            was_alive = target.alive
             report = apply_damage_pipeline(
                 target=target,
                 hits=amount,
@@ -318,7 +321,14 @@ def resolve_step(step: EffectStep, ctx: StepContext) -> list[TurnEvent]:
             )
             if report.hull_damage > 0:
                 target.take_hull_damage(report.hull_damage)
-            out.append(AreaHullDamageHitEvent(ship_id=target.id, hull_damage=report.hull_damage))
+            out.append(
+                AreaHullDamageHitEvent(
+                    ship_id=target.id,
+                    hull_damage=report.hull_damage,
+                    source_fleet_id=ctx.fleet.id,
+                    target_destroyed=was_alive and not target.alive,
+                )
+            )
         return out
 
     if isinstance(step, ConcentratedFireBuff):

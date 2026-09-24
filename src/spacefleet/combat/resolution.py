@@ -59,6 +59,7 @@ class AttackResult:
     distance: float
     in_arc: bool
     in_range: bool
+    target_ship_id: str | None = None
 
     # Weapon info
     weapon_strength: int = 0  # raw strength (guns / beams)
@@ -131,6 +132,7 @@ def resolve_battery_attack(
         weapon_type=WeaponType.BATTERY,
         weapon_strength=weapon.weapon.strength,
         target_name=target.name,
+        target_ship_id=target.id,
         distance=distance(attacker.position, target.position),
         in_arc=False,
         in_range=False,
@@ -285,6 +287,7 @@ def resolve_lance_attack(
         weapon_type=WeaponType.LANCE,
         weapon_strength=weapon.weapon.strength,
         target_name=target.name,
+        target_ship_id=target.id,
         distance=distance(attacker.position, target.position),
         in_arc=False,
         in_range=False,
@@ -429,6 +432,7 @@ def resolve_attack(
         weapon_name=weapon.weapon.name,
         weapon_type=weapon.weapon.weapon_type,
         target_name=target.name,
+        target_ship_id=target.id,
         distance=distance(attacker.position, target.position),
         in_arc=False,
         in_range=False,

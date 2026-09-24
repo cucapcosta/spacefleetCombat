@@ -39,6 +39,7 @@ class GameState(CoreGameState):
     player_ships: dict[str, list[str]] = field(default_factory=dict)
     ai_ships: list[str] = field(default_factory=list)
     kills: dict[str, int] = field(default_factory=dict)
+    credited_destroyed_ship_ids: set[str] = field(default_factory=set)
     fired_this_turn: set[str] = field(default_factory=set)
     xp_awarded: bool = False
     _next_proj_id: int = 0

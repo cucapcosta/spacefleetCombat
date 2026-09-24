@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from spacefleet.combat.projectile_resolution import resolve_lance_ray
+from spacefleet.commander.abilities import AreaHullDamageHitEvent
 from spacefleet.commander.passive_skills import PassiveBus
 from spacefleet.core.events import TurnEvent as TurnEvent  # re-exported for renderers
 from spacefleet.core.game_loop import (
@@ -214,6 +215,13 @@ def resolve_turn(
     state.passives = PassiveBus.build(state)
     for cmd_ev in resolve_command_phase(state, ability_orders or {}, state.dice):
         emit(cmd_ev)
+        if isinstance(cmd_ev, AreaHullDamageHitEvent) and cmd_ev.target_destroyed:
+            _credit_destroyed_ship(
+                state,
+                cmd_ev.ship_id,
+                killer_fleet_id=cmd_ev.source_fleet_id,
+                emit=emit,
+            )
     state.passives = PassiveBus.build(state)
 
     # ── 1. FIRE SUB-PHASE ────────────────────────────────────
@@ -270,7 +278,10 @@ def resolve_turn(
                 )
             )
             if result is not None and result.target_destroyed:
-                _credit_kill(state, ship_id, result.target_name, emit)
+                assert result.target_ship_id is not None
+                _credit_destroyed_ship(
+                    state, result.target_ship_id, killer_ship_id=ship_id, emit=emit
+                )
         else:
             # Battery — create projectile salvo
             proj = Projectile(
@@ -439,7 +450,9 @@ def resolve_turn(
     for proj, target, result in impacts:
         emit(SalvoImpactEvent(proj=proj, target=target, result=result))
         if result.target_destroyed:
-            _credit_kill(state, proj.attacker_id, result.target_name, emit)
+            _credit_destroyed_ship(
+                state, target.id, killer_ship_id=proj.attacker_id, emit=emit
+            )
 
     # Cleanup expired projectiles
     expired = cleanup_projectiles(state.projectiles)
@@ -481,6 +494,8 @@ def resolve_turn(
 
         if shields > 0 or fire_dmg > 0:
             emit(EndOfTurnEvent(ship=ship, shields_regen=shields, fire_damage=fire_dmg))
+        if not ship.alive:
+            _credit_destroyed_ship(state, ship.id, emit=emit)
 
         # Fire suppression upgrade — chance to self-extinguish one fire
         if ship.fires > 0:
@@ -593,53 +608,79 @@ def _award_battle_end(state: GameState, emit: Callable[[TurnEvent], None]) -> No
                 emit(ev)
 
 
-def _credit_kill(
+def _credit_destroyed_ship(
     state: GameState,
-    killer_ship_id: str,
-    target_name: str,
+    target_ship_id: str,
+    *,
+    killer_ship_id: str | None = None,
+    killer_fleet_id: str | None = None,
     emit: Callable[[TurnEvent], None],
 ) -> None:
-    """Credit a kill to the player who owns *killer_ship_id*."""
-    owner = state.owner_of(killer_ship_id)
-    if owner is not None:
-        state.kills[owner] = state.kills.get(owner, 0) + 1
-    # Find the destroyed ship
-    destroyed: Ship | None = None
-    for ship in state.ships.values():
-        if ship.name == target_name and not ship.alive:
-            destroyed = ship
-            emit(DestroyedEvent(ship=ship, killer_player=owner))
-            break
+    """Emit destruction effects once and credit an attributable enemy kill."""
+    if target_ship_id in state.credited_destroyed_ship_ids:
+        return
+    destroyed = state.ships.get(target_ship_id)
+    if destroyed is None or destroyed.alive:
+        return
+
+    state.credited_destroyed_ship_ids.add(target_ship_id)
+
+    killer_faction = None
+    owner = None
+    if killer_ship_id is not None:
+        killer = state.ships.get(killer_ship_id)
+        if killer is not None:
+            killer_faction = killer.faction
+        owner = state.owner_of(killer_ship_id)
+    elif killer_fleet_id is not None:
+        fleet = state.fleets.get(killer_fleet_id)
+        if fleet is not None:
+            if fleet.commander is not None:
+                killer_faction = fleet.commander.faction
+            else:
+                fleet_ships = fleet.ships_in(state)
+                if fleet_ships:
+                    killer_faction = fleet_ships[0].faction
+        if killer_fleet_id in state.kills:
+            owner = killer_fleet_id
+
+    credited_owner = (
+        owner
+        if owner is not None and killer_faction is not None and killer_faction != destroyed.faction
+        else None
+    )
+    if credited_owner is not None:
+        state.kills[credited_owner] = state.kills.get(credited_owner, 0) + 1
+    emit(DestroyedEvent(ship=destroyed, killer_player=credited_owner))
 
     # Morale effects from destruction on nearby ships
-    if destroyed is not None:
-        for other in state.alive_ships():
-            dist = geo_distance(other.position, destroyed.position)
-            if dist > 30.0:
-                continue
-            if other.faction == destroyed.faction:
-                # Ally destroyed nearby: -15 morale
-                old_m = other.morale
-                other.apply_morale_change(-15)
-                if other.morale != old_m:
-                    emit(
-                        MoraleChangeEvent(
-                            ship=other,
-                            old_morale=old_m,
-                            new_morale=other.morale,
-                            source="ally destroyed",
-                        )
+    for other in state.alive_ships():
+        dist = geo_distance(other.position, destroyed.position)
+        if dist > 30.0:
+            continue
+        if other.faction == destroyed.faction:
+            # Ally destroyed nearby: -15 morale
+            old_m = other.morale
+            other.apply_morale_change(-15)
+            if other.morale != old_m:
+                emit(
+                    MoraleChangeEvent(
+                        ship=other,
+                        old_morale=old_m,
+                        new_morale=other.morale,
+                        source="ally destroyed",
                     )
-            else:
-                # Enemy destroyed nearby: +5 morale
-                old_m = other.morale
-                other.apply_morale_change(5)
-                if other.morale != old_m:
-                    emit(
-                        MoraleChangeEvent(
-                            ship=other,
-                            old_morale=old_m,
-                            new_morale=other.morale,
-                            source="enemy destroyed",
-                        )
+                )
+        else:
+            # Enemy destroyed nearby: +5 morale
+            old_m = other.morale
+            other.apply_morale_change(5)
+            if other.morale != old_m:
+                emit(
+                    MoraleChangeEvent(
+                        ship=other,
+                        old_morale=old_m,
+                        new_morale=other.morale,
+                        source="enemy destroyed",
                     )
+                )

@@ -151,6 +151,8 @@ def test_area_hull_damage_overflows_shields() -> None:
     )
     hit = next(e for e in events if isinstance(e, AreaHullDamageHitEvent))
     assert hit.hull_damage >= 1
+    assert hit.source_fleet_id == "f1"
+    assert hit.target_destroyed is False
     assert enemy.hull_current == hull_before - hit.hull_damage
 
 
