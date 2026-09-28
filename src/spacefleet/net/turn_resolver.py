@@ -189,6 +189,8 @@ def resolve_turn(
     state: GameState,
     commands: dict[str, Command],
     ability_orders: dict[str, AbilityOrder] | None = None,
+    *,
+    on_phase: Callable[[str, GameState], None] | None = None,
 ) -> TurnLog:
     """Resolve one full turn with simultaneous resolution.
 
@@ -199,6 +201,9 @@ def resolve_turn(
     commands:
         Mapping of ship_id → Command for every alive ship that
         submitted an order (human + AI).
+    on_phase:
+        Optional observer called with the state at each sub-phase boundary:
+        ``"start"``, ``"after_fire"``, ``"after_move"`` and ``"end"``.
 
     Returns
     -------
@@ -209,6 +214,8 @@ def resolve_turn(
     # CONTACT while orders were given, so fire-control locks honour that.
     revealed_by_fire = frozenset(state.fired_this_turn)
     state.fired_this_turn.clear()
+    if on_phase is not None:
+        on_phase("start", state)
 
     def emit(event: TurnEvent) -> None:
         log.events.append(event)
@@ -394,6 +401,9 @@ def resolve_turn(
                         )
                     )
 
+    if on_phase is not None:
+        on_phase("after_fire", state)
+
     # ── 2. MOVEMENT SUB-PHASE ────────────────────────────────
     move_orders: dict[str, MoveOrder] = {}
     for ship_id, cmd in commands.items():
@@ -470,6 +480,9 @@ def resolve_turn(
     for proj in expired:
         if id(proj) not in impact_projs:
             emit(SalvoExpiredEvent(proj=proj))
+
+    if on_phase is not None:
+        on_phase("after_move", state)
 
     # ── 3. END-OF-TURN SUB-PHASE ─────────────────────────────
 
@@ -578,6 +591,8 @@ def resolve_turn(
         state.xp_awarded = True
         _award_battle_end(state, emit)
 
+    if on_phase is not None:
+        on_phase("end", state)
     return log
 
 

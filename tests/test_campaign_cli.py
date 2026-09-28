@@ -8,7 +8,6 @@ import pytest
 from spacefleet.campaign.models import BattleOutcome, CampaignStatus
 from spacefleet.cli import campaign_cmd
 from spacefleet.cli.campaign_cmd import _store_candidate, run_campaign_menu
-from spacefleet.cli.local_battle import LocalBattleController
 from spacefleet.persistence.campaign_save import CampaignSaveError, load_campaign, save_campaign
 from tests.campaign_helpers import campaign_state
 from tests.terminal_ui_helpers import FakeTerminalUI
@@ -20,7 +19,7 @@ if TYPE_CHECKING:
     from spacefleet.campaign.models import CampaignState
 
 
-class WinningController(LocalBattleController):
+class WinningController:
     def __init__(self, session: BattleSession) -> None:
         self.session = session
 
@@ -31,7 +30,7 @@ class WinningController(LocalBattleController):
         return BattleOutcome.VICTORY
 
 
-class AbandoningController(LocalBattleController):
+class AbandoningController:
     calls = 0
 
     def __init__(self, _session: BattleSession) -> None:
@@ -108,7 +107,7 @@ def test_continue_links_two_battles_through_store(tmp_path: Path) -> None:
 def test_battle_report_shows_casualty_names_and_updated_state(tmp_path: Path) -> None:
     path = save_campaign(campaign_state(), tmp_path / "save.json")
 
-    class CostlyVictory(LocalBattleController):
+    class CostlyVictory:
         def __init__(self, session: BattleSession) -> None:
             self.session = session
 
@@ -179,7 +178,7 @@ def test_every_defeat_outcome_reports_terminal_status(
 ) -> None:
     path = save_campaign(campaign_state(), tmp_path / f"{outcome.value}.json")
 
-    class LosingController(LocalBattleController):
+    class LosingController:
         def __init__(self, session: BattleSession) -> None:
             self.session = session
 
@@ -215,3 +214,53 @@ def test_app_routes_shared_ui_to_campaign(monkeypatch: pytest.MonkeyPatch) -> No
     app.main(ui=ui)
 
     assert seen == [ui]
+
+
+def test_run_campaign_menu_builds_and_runs_first_battle(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from tests.campaign_helpers import supported_fleet
+
+    fleet = supported_fleet()
+    seen: dict[str, BattleSession] = {}
+    monkeypatch.setattr(campaign_cmd, "run_fleet_builder", lambda **_kwargs: fleet)
+
+    class Controller:
+        def __init__(self, session: BattleSession) -> None:
+            seen["session"] = session
+
+        def run(self) -> BattleOutcome:
+            return BattleOutcome.ABANDONED
+
+    ui = FakeTerminalUI(
+        choices=["new", "imperial_navy", "battle", "back"],
+        texts=["Admiral Voss", "19"],
+    )
+    run_campaign_menu(save_path=tmp_path / "campaign.json", ui=ui, controller_factory=Controller)
+    assert seen["session"].battle_id == "19:1"
+    commander = seen["session"].state.fleets["player"].commander
+    assert commander is not None
+    assert commander.name == "Admiral Voss"
+
+
+def test_default_battle_runner_is_the_tui(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    from spacefleet.tui import battle_app
+
+    runs: list[BattleSession] = []
+
+    def fake_run(session: BattleSession, **_kwargs: object) -> BattleOutcome:
+        runs.append(session)
+        return BattleOutcome.ABANDONED
+
+    monkeypatch.setattr(battle_app, "run_battle", fake_run)
+    path = tmp_path / "campaign.json"
+    save_campaign(campaign_state(), path)
+    ui = FakeTerminalUI(choices=["continue", "battle", "back"])
+    run_campaign_menu(save_path=path, ui=ui)
+    assert len(runs) == 1
+
+
+def test_app_menu_mentions_local_campaign() -> None:
+    from spacefleet.cli.app import MENU
+
+    assert "Campaign" in MENU

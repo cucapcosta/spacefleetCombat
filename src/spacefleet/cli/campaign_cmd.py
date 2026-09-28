@@ -26,7 +26,6 @@ from spacefleet.campaign.rules import (
 )
 from spacefleet.cli.fitting import FittingChoice, fitting_choices
 from spacefleet.cli.fleet_builder_cmd import run_fleet_builder
-from spacefleet.cli.local_battle import LocalBattleController
 from spacefleet.cli.terminal_ui import MenuOption, TerminalUI
 from spacefleet.commander.upgrade_effects import upgrade_slots_for
 from spacefleet.core.types import Faction
@@ -42,6 +41,7 @@ from spacefleet.persistence.campaign_save import (
     load_campaign,
     save_campaign,
 )
+from spacefleet.tui.battle_app import TuiBattleRunner
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -49,6 +49,7 @@ if TYPE_CHECKING:
 
     from spacefleet.campaign.battle import BattleSession
     from spacefleet.campaign.models import CampaignShip, CampaignState
+    from spacefleet.tui.runner import BattleRunner
 
 _FittingKind = Literal["weapon", "upgrade", "doctrine"]
 
@@ -211,7 +212,7 @@ def _store_candidate(campaign: CampaignState, parts: list[str]) -> tuple[Campaig
 def _battle(
     campaign: CampaignState,
     path: Path,
-    controller_factory: Callable[[BattleSession], LocalBattleController] | None,
+    controller_factory: Callable[[BattleSession], BattleRunner] | None,
     output_fn: Callable[[str], None],
     ui: TerminalUI | None = None,
 ) -> tuple[CampaignState, bool]:
@@ -220,7 +221,7 @@ def _battle(
         validate_campaign_state(campaign, require_battle_ready=True)
         session = build_battle(campaign)
         controller = (
-            LocalBattleController(session, ui=ui)
+            TuiBattleRunner(session, ui=ui)
             if controller_factory is None
             else controller_factory(session)
         )
@@ -260,7 +261,7 @@ def _interval(
     campaign: CampaignState,
     path: Path,
     ui: TerminalUI,
-    controller_factory: Callable[[BattleSession], LocalBattleController] | None,
+    controller_factory: Callable[[BattleSession], BattleRunner] | None,
 ) -> None:
     while True:
         battle_reason = None
@@ -677,7 +678,7 @@ def run_campaign_menu(
     *,
     save_path: Path | None = None,
     ui: TerminalUI | None = None,
-    controller_factory: Callable[[BattleSession], LocalBattleController] | None = None,
+    controller_factory: Callable[[BattleSession], BattleRunner] | None = None,
 ) -> None:
     """Run the menu-driven New/Continue campaign session."""
     ui = ui or TerminalUI()

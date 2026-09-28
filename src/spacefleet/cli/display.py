@@ -539,30 +539,6 @@ def format_end_of_turn(
 
 
 # ─────────────────────────────────────────────────────────────────
-# Kit selection
-# ─────────────────────────────────────────────────────────────────
-
-
-def format_kit_option(
-    label: str,
-    description: str,
-    weapons: list[tuple[str, str, str]],
-) -> str:
-    """Format a weapon-kit selection option.
-
-    *weapons* is a list of ``(slot_name, weapon_name, notes)`` tuples.
-    """
-    lines = [
-        f"  {bold(label)}",
-        f"    {description}",
-    ]
-    for slot, weapon, notes in weapons:
-        extra = f"  {dim(notes)}" if notes else ""
-        lines.append(f"      {slot}: {colored(weapon, C.BRIGHT_YELLOW)}{extra}")
-    return "\n".join(lines)
-
-
-# ─────────────────────────────────────────────────────────────────
 # Drift report
 # ─────────────────────────────────────────────────────────────────
 

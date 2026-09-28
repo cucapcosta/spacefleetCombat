@@ -1,22 +1,9 @@
-"""Main application — menus, demo setup, and entry point."""
+"""Main application — menus and entry point."""
 
 from __future__ import annotations
 
 from spacefleet.cli.colors import C, bold, colored, dim
-from spacefleet.cli.display import format_kit_option
-from spacefleet.cli.game_cmd import DemoBattle
 from spacefleet.cli.terminal_ui import MenuOption, TerminalClosed, TerminalUI
-from spacefleet.core.types import Vector2D
-from spacefleet.data.demo_data import (
-    DAUNTLESS_HULL,
-    HULK_HULL,
-    make_broadside_kit,
-    make_hulk_weapons,
-    make_lance_kit,
-    spawn_target,
-)
-from spacefleet.dice import DiceRoller
-from spacefleet.models.ship import Ship
 
 # ─────────────────────────────────────────────────────────────────
 # Banner & menu text
@@ -36,125 +23,11 @@ BANNER = f"""
 """
 
 MENU = f"""
-  {colored("[1]", C.BRIGHT_YELLOW)} Start Demo
+  {colored("[1]", C.BRIGHT_YELLOW)} Campaign
   {colored("[2]", C.BRIGHT_YELLOW)} Connect to Server
   {colored("[3]", C.BRIGHT_YELLOW)} Fleet Builder
-  {colored("[4]", C.BRIGHT_YELLOW)} Campaign
-  {colored("[5]", C.RED)} Quit
+  {colored("[4]", C.RED)} Quit
 """
-
-
-# ─────────────────────────────────────────────────────────────────
-# Kit selection
-# ─────────────────────────────────────────────────────────────────
-
-
-def _select_weapon_kit() -> int:
-    """Let the player choose a weapon loadout.
-
-    Returns 1 for Broadside, 2 for Lance, 0 for cancel.
-    """
-    print(f"\n  {bold('Select your weapon loadout for the Dauntless Light Cruiser:')}\n")
-
-    print(
-        format_kit_option(
-            "[A] Broadside Brawler",
-            "Heavy broadsides for flanking engagements. Present your sides to "
-            "unleash maximum firepower.",
-            [
-                ("Port Battery", "Macro-Cannon Mk.III", "str 6, range 45 GU"),
-                ("Starboard Battery", "Macro-Cannon Mk.III", "str 6, range 45 GU"),
-                ("Prow Weapon Bay", "Macro-Cannon Mk.II", "str 4, range 45 GU"),
-            ],
-        )
-    )
-    print()
-    print(
-        format_kit_option(
-            "[B] Prow Lancer",
-            "Balanced broadsides with a prow lance that bypasses armor entirely. "
-            "Point your nose at the enemy.",
-            [
-                ("Port Battery", "Macro-Cannon Mk.II", "str 4, range 45 GU"),
-                ("Starboard Battery", "Macro-Cannon Mk.II", "str 4, range 45 GU"),
-                ("Prow Weapon Bay", "Lance Mk.II", "str 2, range 60 GU, ignores armor"),
-            ],
-        )
-    )
-
-    while True:
-        try:
-            choice = (
-                input(
-                    f"\n  Choose loadout"
-                    f" ({colored('A', C.BRIGHT_YELLOW)}/{colored('B', C.BRIGHT_YELLOW)}): "
-                )
-                .strip()
-                .upper()
-            )
-        except (EOFError, KeyboardInterrupt):
-            print()
-            return 0
-
-        if choice in ("A", "1"):
-            return 1
-        if choice in ("B", "2"):
-            return 2
-        print("  Please enter A or B.")
-
-
-# ─────────────────────────────────────────────────────────────────
-# Demo setup
-# ─────────────────────────────────────────────────────────────────
-
-
-def _start_demo() -> None:
-    """Set up and run the tech demo battle."""
-    kit_choice = _select_weapon_kit()
-    if kit_choice == 0:
-        return
-
-    # Build weapon loadout
-    if kit_choice == 1:
-        weapons = make_broadside_kit()
-        kit_name = "Broadside Brawler"
-    else:
-        weapons = make_lance_kit()
-        kit_name = "Prow Lancer"
-
-    print(f"\n  Loadout selected: {colored(kit_name, C.BRIGHT_YELLOW)}")
-
-    # Create player ship — starts stationary at the origin, heading north
-    player = Ship.from_profile(
-        ship_id="player",
-        name="ISS Dauntless",
-        hull=DAUNTLESS_HULL,
-        weapons=weapons,
-        position=Vector2D(0.0, 0.0),
-        heading=0.0,
-    )
-
-    # Create first target hulk — 30 GU dead ahead
-    first_target = Ship.from_profile(
-        ship_id="hulk_1",
-        name="Derelict Hulk #1",
-        hull=HULK_HULL,
-        weapons=make_hulk_weapons(),
-        position=Vector2D(0.0, 30.0),
-        heading=180.0,
-    )
-
-    # Create dice roller (un-seeded for real randomness)
-    dice = DiceRoller()
-
-    # Run!
-    battle = DemoBattle(
-        player=player,
-        targets=[first_target],
-        dice_roller=dice,
-        spawn_fn=spawn_target,
-    )
-    battle.run()
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -201,19 +74,19 @@ def main(*, ui: TerminalUI | None = None) -> None:
                 choice = ui.choose(
                     "SPACEFLEET COMBAT",
                     [
-                        MenuOption("demo", "Start Demo"),
+                        MenuOption("campaign", "Campaign"),
                         MenuOption("connect", "Connect to Server"),
                         MenuOption("fleet", "Fleet Builder"),
-                        MenuOption("campaign", "Campaign"),
                         MenuOption("quit", "Quit"),
                     ],
                     context=BANNER,
                 )
                 if choice is None or choice == "quit":
                     break
-                if choice == "demo":
-                    with ui.suspended():
-                        _start_demo()
+                if choice == "campaign":
+                    from spacefleet.cli.campaign_cmd import run_campaign_menu
+
+                    run_campaign_menu(ui=ui)
                 elif choice == "connect":
                     with ui.suspended():
                         _connect_to_server()
@@ -221,10 +94,6 @@ def main(*, ui: TerminalUI | None = None) -> None:
                     from spacefleet.cli.fleet_builder_cmd import run_fleet_builder
 
                     run_fleet_builder(ui=ui)
-                elif choice == "campaign":
-                    from spacefleet.cli.campaign_cmd import run_campaign_menu
-
-                    run_campaign_menu(ui=ui)
     except TerminalClosed:
         pass
     ui.show(f"\n  {dim('Ave Imperator. The Emperor protects.')}\n")
