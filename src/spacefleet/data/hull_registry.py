@@ -25,6 +25,11 @@ _SENSOR_RANGE_BY_CLASS: dict[ShipClass, float] = {
 }
 
 
+def baseline_sensor_range(classification: ShipClass) -> float:
+    """Stock sensor range for a hull class, before upgrades."""
+    return _SENSOR_RANGE_BY_CLASS.get(classification, 40.0)
+
+
 def _parse_weapon_slot(raw: dict[str, Any]) -> WeaponSlotDef:
     return WeaponSlotDef(
         id=int(raw["id"]),

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from spacefleet.combat.fire_control import aim_for
 from spacefleet.core.types import Stance
 from spacefleet.net.commands import Command
 from spacefleet.spatial.geometry import (
@@ -17,6 +18,7 @@ from spacefleet.spatial.geometry import (
     distance,
     is_in_arc,
     relative_bearing,
+    relative_bearing_360,
 )
 
 if TYPE_CHECKING:
@@ -61,13 +63,15 @@ class AIController:
         target = self._choose_target(ship, enemies)
         self._manage_stance(ship, target)
 
-        weapon = self._firing_solution(ship, target)
-        if weapon is not None and (self.fire_chance >= 1.0 or state.dice.chance(self.fire_chance)):
-            bearing = bearing_from_to(ship.position, target.position)
+        solution = self._firing_solution(ship, target)
+        if solution is not None and (
+            self.fire_chance >= 1.0 or state.dice.chance(self.fire_chance)
+        ):
+            weapon, bearing = solution
             return Command(
                 ship_id=ship.id,
                 action="fire",
-                args={"slot": weapon.slot_id, "bearing": bearing},
+                args={"slot": weapon.slot_id, "bearing": bearing, "target": target.id},
             )
         return self._maneuver(ship, target)
 
@@ -79,19 +83,19 @@ class AIController:
         pool = exposed or in_solution or enemies
         return min(pool, key=lambda e: (distance(ship.position, e.position), e.id))
 
-    def _firing_solution(self, ship: Ship, target: Ship) -> WeaponMount | None:
-        """Best (highest-strength) weapon that bears on *target* in-arc and
-        in-range, or None."""
-        bearing = bearing_from_to(ship.position, target.position)
-        dist = distance(ship.position, target.position)
-        candidates = [
-            w
-            for w in ship.weapons
-            if w.can_fire and dist <= w.weapon.range and is_in_arc(ship.heading, bearing, w.arc)
-        ]
+    def _firing_solution(self, ship: Ship, target: Ship) -> tuple[WeaponMount, float] | None:
+        """Best (highest-strength) weapon whose aim point on *target* is
+        in-arc and in-range, with its prow-relative (lead) bearing, or None."""
+        candidates: list[tuple[WeaponMount, float]] = []
+        for w in ship.weapons:
+            if not w.can_fire:
+                continue
+            aim = aim_for(ship, w, target, target.position)
+            if aim is not None and is_in_arc(ship.heading, aim.bearing, w.arc):
+                candidates.append((w, relative_bearing_360(ship.heading, aim.bearing)))
         if not candidates:
             return None
-        return max(candidates, key=lambda w: w.weapon.strength)
+        return max(candidates, key=lambda c: c[0].weapon.strength)
 
     def _maneuver(self, ship: Ship, target: Ship) -> Command:
         bearing = bearing_from_to(ship.position, target.position)

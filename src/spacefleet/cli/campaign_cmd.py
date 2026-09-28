@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from spacefleet.campaign.battle import build_battle, close_battle
 from spacefleet.campaign.economy import (
+    REPAIR_COST_PER_HULL,
+    CampaignEconomyError,
     buy_ship,
     discard_ship,
     reequip_ship,
@@ -16,21 +18,24 @@ from spacefleet.campaign.economy import (
 )
 from spacefleet.campaign.models import BattleOutcome, CampaignStatus
 from spacefleet.campaign.rules import (
-    BLOCKED_UPGRADES,
     INITIAL_CREDITS,
-    SUPPORTED_WEAPON_TYPES,
     enemy_fleet_for,
     new_campaign,
+    validate_campaign_fleet,
     validate_campaign_state,
 )
+from spacefleet.cli.fitting import FittingChoice, fitting_choices
 from spacefleet.cli.fleet_builder_cmd import run_fleet_builder
 from spacefleet.cli.local_battle import LocalBattleController
+from spacefleet.cli.terminal_ui import MenuOption, TerminalUI
+from spacefleet.commander.upgrade_effects import upgrade_slots_for
 from spacefleet.core.types import Faction
 from spacefleet.data.doctrine_registry import DoctrineRegistry
 from spacefleet.data.hull_registry import HullRegistry
+from spacefleet.data.skill_registry import SkillRegistry
 from spacefleet.data.upgrade_registry import UpgradeRegistry
 from spacefleet.data.weapon_registry import WeaponRegistry
-from spacefleet.models.fleet_spec import ShipSpec, fleet_points
+from spacefleet.models.fleet_spec import ShipSpec, fleet_points, ship_points
 from spacefleet.persistence.campaign_save import (
     CampaignSaveError,
     default_campaign_path,
@@ -45,38 +50,7 @@ if TYPE_CHECKING:
     from spacefleet.campaign.battle import BattleSession
     from spacefleet.campaign.models import CampaignShip, CampaignState
 
-
-_MENU = "Campaign: new | continue | back"
-_HELP = """\
-Interval commands:
-  status | catalog | help | save | battle | back
-  buy <hull-id> <name...>
-  equip <ship-id> weapon <slot> <weapon-id>
-  equip <ship-id> upgrade <upgrade-id>
-  equip <ship-id> doctrine <doctrine-id>
-  remove <ship-id> weapon <slot>
-  remove <ship-id> upgrade <upgrade-id>
-  remove <ship-id> doctrine
-  repair <ship-id|all> | discard <ship-id> | flagship <ship-id>
-Buy adds only the hull; equip weapons afterwards using the stable ship ID.
-Ship IDs shown by status are stable across battles and roster edits.
-Mutating store commands require a separate 'confirm'.
-"""
-
-
-def _read(input_fn: Callable[[str], str], prompt: str) -> str | None:
-    try:
-        return input_fn(prompt).strip()
-    except (EOFError, KeyboardInterrupt, StopIteration):
-        return None
-
-
-def _confirmed(input_fn: Callable[[str], str], output_fn: Callable[[str], None]) -> bool:
-    answer = _read(input_fn, "  Type 'confirm' to proceed: ")
-    if answer is not None and answer.lower() == "confirm":
-        return True
-    output_fn("  Cancelled; campaign unchanged.")
-    return False
+_FittingKind = Literal["weapon", "upgrade", "doctrine"]
 
 
 def _autosave(
@@ -97,6 +71,16 @@ def _autosave(
 
 
 def _status(campaign: CampaignState) -> str:
+    ability_names = [
+        ability_definition.name
+        for ability_id in campaign.commander.active_ability_ids
+        if (ability_definition := SkillRegistry.get_active(ability_id)) is not None
+    ]
+    passive_names = [
+        passive_definition.name
+        for passive_id in campaign.commander.passive_skill_ids
+        if (passive_definition := SkillRegistry.get_passive(passive_id)) is not None
+    ]
     rows = [
         f"Encounter: {campaign.encounter}/5",
         f"Credits: {campaign.credits}",
@@ -104,24 +88,31 @@ def _status(campaign: CampaignState) -> str:
             f"Commander: {campaign.commander.name} — level {campaign.commander.level}, "
             f"XP {campaign.commander.xp}"
         ),
-        f"  abilities: {', '.join(campaign.commander.active_ability_ids) or '(none)'}",
-        f"  passives: {', '.join(campaign.commander.passive_skill_ids) or '(none)'}",
+        f"  abilities: {', '.join(ability_names) or '(none)'}",
+        f"  passives: {', '.join(passive_names) or '(none)'}",
         "Roster:",
     ]
     if not campaign.roster:
         rows.append("  (empty)")
-    for ship in campaign.roster:
+    for index, ship in enumerate(campaign.roster):
+        hull = HullRegistry.get(ship.spec.hull_id)
         role = "flagship" if ship.id == campaign.flagship_id else "ship"
         rows.append(
-            f"  {ship.id}: {ship.spec.name} ({ship.spec.hull_id}) — {role}, "
+            f"  {index + 1}. {ship.spec.name} — {hull.name} — {role}, "
             f"damage {ship.hull_damage}, survived {ship.battles_survived}"
         )
-        weapons = ", ".join(
-            f"{slot}={weapon_id}" for slot, weapon_id in sorted(ship.spec.weapons.items())
-        )
-        rows.append(f"    weapons: {weapons or '(none)'}")
-        rows.append(f"    upgrades: {', '.join(ship.spec.upgrade_ids) or '(none)'}")
-        rows.append(f"    doctrine: {ship.spec.doctrine_id or '(none)'}")
+        slots = {slot.id: slot for slot in hull.weapon_slots}
+        weapons = []
+        for slot_id, weapon_id in sorted(ship.spec.weapons.items()):
+            slot = slots.get(slot_id)
+            slot_name = slot.name if slot is not None else f"Weapon position {slot_id}"
+            weapon = WeaponRegistry.get_or_none(weapon_id)
+            weapons.append(f"{slot_name}: {weapon.name if weapon is not None else 'Unknown'}")
+        rows.append(f"    weapons: {', '.join(weapons) or '(none)'}")
+        upgrades = [UpgradeRegistry.get(upgrade_id).name for upgrade_id in ship.spec.upgrade_ids]
+        rows.append(f"    upgrades: {', '.join(upgrades) or '(none)'}")
+        doctrine = DoctrineRegistry.get_or_none(ship.spec.doctrine_id)
+        rows.append(f"    doctrine: {doctrine.name if doctrine is not None else '(none)'}")
     if campaign.flagship_id is None:
         rows.append("Flagship: none — choose one before battle.")
     if campaign.status is CampaignStatus.ACTIVE:
@@ -129,24 +120,6 @@ def _status(campaign: CampaignState) -> str:
         rows.append(
             f"Next enemy: {enemy.name} — {len(enemy.ships)} ships, {fleet_points(enemy)} points"
         )
-    return "\n".join(rows)
-
-
-def _catalog(campaign: CampaignState) -> str:
-    rows = ["Hulls (hull only; equip weapons separately after purchase):"]
-    for hull in HullRegistry.by_faction(campaign.faction):
-        rows.append(f"  {hull.id}: {hull.hull_cost} credits")
-    rows.append("Weapons:")
-    for weapon in WeaponRegistry.all().values():
-        note = "" if weapon.weapon_type in SUPPORTED_WEAPON_TYPES else " — UNSUPPORTED mechanic"
-        rows.append(f"  {weapon.id}: {weapon.cost} credits{note}")
-    rows.append("Upgrades:")
-    for upgrade in UpgradeRegistry.all().values():
-        note = " — UNSUPPORTED mechanic" if upgrade.id in BLOCKED_UPGRADES else ""
-        rows.append(f"  {upgrade.id}: {upgrade.cost} credits{note}")
-    rows.append("Doctrines:")
-    for doctrine in DoctrineRegistry.for_faction(campaign.faction):
-        rows.append(f"  {doctrine.id}: {doctrine.cost} credits")
     return "\n".join(rows)
 
 
@@ -238,14 +211,20 @@ def _store_candidate(campaign: CampaignState, parts: list[str]) -> tuple[Campaig
 def _battle(
     campaign: CampaignState,
     path: Path,
-    controller_factory: Callable[[BattleSession], LocalBattleController],
+    controller_factory: Callable[[BattleSession], LocalBattleController] | None,
     output_fn: Callable[[str], None],
+    ui: TerminalUI | None = None,
 ) -> tuple[CampaignState, bool]:
     ship_names = {ship.id: ship.spec.name for ship in campaign.roster}
     try:
         validate_campaign_state(campaign, require_battle_ready=True)
         session = build_battle(campaign)
-        outcome = controller_factory(session).run()
+        controller = (
+            LocalBattleController(session, ui=ui)
+            if controller_factory is None
+            else controller_factory(session)
+        )
+        outcome = controller.run()
     except ValueError as exc:
         output_fn(f"  Battle cannot start: {exc}")
         return campaign, False
@@ -280,121 +259,453 @@ def _battle(
 def _interval(
     campaign: CampaignState,
     path: Path,
-    input_fn: Callable[[str], str],
-    output_fn: Callable[[str], None],
-    controller_factory: Callable[[BattleSession], LocalBattleController],
+    ui: TerminalUI,
+    controller_factory: Callable[[BattleSession], LocalBattleController] | None,
 ) -> None:
-    if campaign.status is not CampaignStatus.ACTIVE:
-        output_fn(f"  Campaign is {campaign.status.value}; no further battles can start.")
-        return
-    output_fn(_status(campaign))
     while True:
-        raw = _read(input_fn, "  campaign> ")
-        if raw is None or raw.lower() in {"back", "quit", "exit"}:
+        battle_reason = None
+        if campaign.status is not CampaignStatus.ACTIVE:
+            battle_reason = f"campaign is {campaign.status.value}"
+        action = ui.choose(
+            "Campaign interval",
+            [
+                MenuOption("battle", "Start battle", disabled_reason=battle_reason),
+                MenuOption("manage", "Manage ships", disabled_reason=battle_reason),
+                MenuOption("buy", "Buy hull", disabled_reason=battle_reason),
+                MenuOption("repair", "Repair ships", disabled_reason=battle_reason),
+                MenuOption("save", "Save"),
+                MenuOption("back", "Back"),
+            ],
+            context=_status(campaign),
+        )
+        if action is None or action == "back":
             return
-        parts = raw.split()
-        if not parts:
+        if battle_reason is not None and action in {"battle", "manage", "buy", "repair"}:
+            ui.show(battle_reason)
             continue
-        cmd = parts[0].lower()
-        if cmd == "status":
-            output_fn(_status(campaign))
-        elif cmd == "help":
-            output_fn(_HELP)
-        elif cmd == "catalog":
-            output_fn(_catalog(campaign))
-        elif cmd == "save":
-            _autosave(campaign, path, output_fn, explicit=True)
-        elif cmd == "battle":
-            campaign, terminal = _battle(campaign, path, controller_factory, output_fn)
+        if action == "save":
+            _autosave(campaign, path, ui.show, explicit=True)
+        elif action == "battle":
+            campaign, terminal = _battle(campaign, path, controller_factory, ui.show, ui)
             if terminal:
                 return
-        elif cmd in {"buy", "equip", "remove", "discard", "repair", "flagship"}:
-            try:
-                candidate, preview = _store_candidate(campaign, [cmd, *parts[1:]])
-            except ValueError as exc:
-                output_fn(f"  Store rejected: {exc}")
+        elif action == "buy":
+            campaign = _buy_hull(campaign, path, ui)
+        elif action == "repair":
+            campaign = _repair_menu(campaign, path, ui)
+        elif action == "manage":
+            campaign = _manage_campaign(campaign, path, ui)
+
+
+def _preview_text(before: CampaignState, after: CampaignState) -> str:
+    return f"{_credit_preview(before, after)}; resulting credits {after.credits}"
+
+
+def _campaign_ship_context(campaign: CampaignState, ship_id: str) -> str:
+    ship = _ship(campaign, ship_id)
+    hull = HullRegistry.get(ship.spec.hull_id)
+    rows = [
+        f"Credits: {campaign.credits}",
+        f"{ship.spec.name} — {hull.name}",
+        f"Damage: {ship.hull_damage} | survived: {ship.battles_survived}",
+    ]
+    for slot in hull.weapon_slots:
+        weapon_id = ship.spec.weapons.get(slot.id)
+        weapon = WeaponRegistry.get_or_none(weapon_id) if weapon_id is not None else None
+        rows.append(
+            f"Weapon {slot.id}: {slot.name} | {slot.arc.value} | {slot.size.value} | "
+            f"{weapon.name if weapon else 'Empty'}"
+        )
+    slots = upgrade_slots_for(hull, ship.spec.doctrine_id)
+    for position in range(slots):
+        upgrade = (
+            UpgradeRegistry.get_or_none(ship.spec.upgrade_ids[position])
+            if position < len(ship.spec.upgrade_ids)
+            else None
+        )
+        rows.append(f"Upgrade position {position + 1}: {upgrade.name if upgrade else 'Empty'}")
+    doctrine = DoctrineRegistry.get_or_none(ship.spec.doctrine_id)
+    rows.append(f"Doctrine: {doctrine.name if doctrine else 'None'}")
+    return "\n".join(rows)
+
+
+def _campaign_weapon_name(spec: ShipSpec, slot_id: int) -> str:
+    if slot_id not in spec.weapons:
+        return "Empty"
+    return WeaponRegistry.get(spec.weapons[slot_id]).name
+
+
+def _unique_probe_name(campaign: CampaignState, base: str) -> str:
+    names = {ship.spec.name for ship in campaign.roster}
+    name = base
+    suffix = 2
+    while name in names:
+        name = f"{base} {suffix}"
+        suffix += 1
+    return name
+
+
+def _buy_hull(campaign: CampaignState, path: Path, ui: TerminalUI) -> CampaignState:
+    options: list[MenuOption] = []
+    for hull in HullRegistry.by_faction(campaign.faction):
+        spec = ShipSpec(_unique_probe_name(campaign, hull.name), hull.id)
+        candidate = deepcopy(campaign)
+        reason = None
+        try:
+            buy_ship(candidate, spec)
+        except CampaignEconomyError as exc:
+            if str(exc) != "insufficient credits":
                 continue
-            output_fn(f"  {preview}")
-            if _confirmed(input_fn, output_fn):
-                campaign = candidate
-                _autosave(campaign, path, output_fn)
-        else:
-            output_fn("  Unknown command; type 'help'.")
-
-
-def _new_campaign(
-    path: Path,
-    input_fn: Callable[[str], str],
-    output_fn: Callable[[str], None],
-) -> CampaignState | None:
-    if path.exists():
-        output_fn("  A saved campaign exists. Replacing it will erase that campaign.")
-        if not _confirmed(input_fn, output_fn):
-            return None
-    faction_raw = _read(input_fn, "  Faction (imperial_navy / chaos_fleet): ")
-    if faction_raw is None or faction_raw.lower() in {"cancel", "back"}:
-        return None
+            funded = deepcopy(campaign)
+            funding = ship_points(spec)
+            funded.credits += funding
+            funded_start = funded.credits
+            buy_ship(funded, spec)
+            candidate = funded
+            charge = funded_start - funded.credits
+            candidate.credits = campaign.credits - charge
+            reason = "insufficient credits"
+        details = f"{hull.hull_cost} credits | {_preview_text(campaign, candidate)}"
+        options.append(MenuOption(hull.id, hull.name, details, reason))
+    selected = ui.choose("Buy hull", options, context=f"Credits: {campaign.credits}")
+    if selected is None:
+        return campaign
+    option = next(item for item in options if item.value == selected)
+    if option.disabled_reason:
+        ui.show(option.disabled_reason)
+        return campaign
+    hull = HullRegistry.get(selected)
+    name = ui.text("Ship name", "campaign.ship_name", hull.name)
+    if name is None:
+        return campaign
+    candidate = deepcopy(campaign)
     try:
-        faction = Faction(faction_raw.lower())
-    except ValueError:
-        output_fn(f"  Unknown faction {faction_raw!r}.")
+        buy_ship(candidate, ShipSpec(name, selected))
+    except CampaignEconomyError as exc:
+        ui.show(str(exc))
+        return campaign
+    preview = _preview_text(campaign, candidate)
+    if not ui.confirm(f"Buy {name}? {preview}"):
+        return campaign
+    _autosave(candidate, path, ui.show)
+    return candidate
+
+
+def _repair_menu(campaign: CampaignState, path: Path, ui: TerminalUI) -> CampaignState:
+    options: list[MenuOption] = []
+    candidates: dict[str, CampaignState] = {}
+    operations: list[tuple[str, str, Callable[[CampaignState], int]]] = [
+        ("all", "Repair all ships", repair_all),
+    ]
+
+    def repair_one(ship_id: str) -> Callable[[CampaignState], int]:
+        def operation(state: CampaignState) -> int:
+            return repair_ship(state, ship_id)
+
+        return operation
+
+    operations.extend(
+        (
+            ship.id,
+            f"{ship.spec.name} — damage {ship.hull_damage}",
+            repair_one(ship.id),
+        )
+        for ship in campaign.roster
+    )
+    funding = sum(ship.hull_damage for ship in campaign.roster) * REPAIR_COST_PER_HULL
+    for value, label, operation in operations:
+        candidate = deepcopy(campaign)
+        reason = None
+        try:
+            operation(candidate)
+        except CampaignEconomyError as exc:
+            if str(exc) != "insufficient credits":
+                continue
+            funded = deepcopy(campaign)
+            funded.credits += funding
+            charge = operation(funded)
+            funded.credits = campaign.credits - charge
+            candidate = funded
+            reason = "insufficient credits"
+        options.append(MenuOption(value, label, _preview_text(campaign, candidate), reason))
+        if reason is None:
+            candidates[value] = candidate
+    selected = ui.choose("Repair ships", options, context=f"Credits: {campaign.credits}")
+    if selected is None:
+        return campaign
+    option = next(item for item in options if item.value == selected)
+    if option.disabled_reason:
+        ui.show(option.disabled_reason)
+        return campaign
+    candidate = candidates[selected]
+    if not ui.confirm(f"{option.label}? {option.details}"):
+        return campaign
+    _autosave(candidate, path, ui.show)
+    return candidate
+
+
+def _manage_campaign(campaign: CampaignState, path: Path, ui: TerminalUI) -> CampaignState:
+    while True:
+        options = [
+            MenuOption(
+                ship.id,
+                f"{index + 1}. {ship.spec.name} — {HullRegistry.get(ship.spec.hull_id).name}",
+                f"damage {ship.hull_damage} | survived {ship.battles_survived}",
+            )
+            for index, ship in enumerate(campaign.roster)
+        ]
+        options.append(MenuOption("back", "Back"))
+        selected = ui.choose("Manage ships", options, context=_status(campaign))
+        if selected is None or selected == "back":
+            return campaign
+        campaign = _manage_ship(campaign, selected, path, ui)
+
+
+def _manage_ship(
+    campaign: CampaignState,
+    ship_id: str,
+    path: Path,
+    ui: TerminalUI,
+) -> CampaignState:
+    while any(ship.id == ship_id for ship in campaign.roster):
+        ship = _ship(campaign, ship_id)
+        hull = HullRegistry.get(ship.spec.hull_id)
+        options = [
+            MenuOption(
+                f"weapon:{slot.id}",
+                f"Weapon: {slot.name}",
+                f"{slot.arc.value} arc | {slot.size.value} | "
+                f"{_campaign_weapon_name(ship.spec, slot.id)}",
+            )
+            for slot in hull.weapon_slots
+        ]
+        for position in range(upgrade_slots_for(hull, ship.spec.doctrine_id)):
+            current = (
+                UpgradeRegistry.get(ship.spec.upgrade_ids[position]).name
+                if position < len(ship.spec.upgrade_ids)
+                else "Empty"
+            )
+            options.append(
+                MenuOption(
+                    f"upgrade:{position}",
+                    f"Upgrade position {position + 1}: {current}",
+                )
+            )
+        doctrine = DoctrineRegistry.get_or_none(ship.spec.doctrine_id)
+        options.extend(
+            (
+                MenuOption("doctrine", f"Doctrine: {doctrine.name if doctrine else 'None'}"),
+                MenuOption("flagship", "Make flagship"),
+                MenuOption("discard", "Discard ship"),
+                MenuOption("back", "Back"),
+            )
+        )
+        action = ui.choose(
+            "Manage ship",
+            options,
+            context=_campaign_ship_context(campaign, ship_id),
+        )
+        if action is None or action == "back":
+            return campaign
+        if action.startswith("weapon:"):
+            campaign = _campaign_fitting(
+                campaign, ship_id, path, ui, "weapon", int(action.partition(":")[2])
+            )
+        elif action.startswith("upgrade:"):
+            position = int(action.partition(":")[2])
+            slot_id = position if position < len(ship.spec.upgrade_ids) else None
+            campaign = _campaign_fitting(campaign, ship_id, path, ui, "upgrade", slot_id)
+        elif action == "doctrine":
+            campaign = _campaign_fitting(campaign, ship_id, path, ui, "doctrine", None)
+        elif action == "flagship":
+            candidate = deepcopy(campaign)
+            try:
+                set_flagship(candidate, ship_id)
+            except CampaignEconomyError as exc:
+                ui.show(str(exc))
+                continue
+            if ui.confirm(f"Make {ship.spec.name} the flagship?"):
+                campaign = candidate
+                _autosave(campaign, path, ui.show)
+        elif action == "discard":
+            candidate = deepcopy(campaign)
+            try:
+                discard_ship(candidate, ship_id)
+            except CampaignEconomyError as exc:
+                ui.show(str(exc))
+                continue
+            if ui.confirm(f"Discard {ship.spec.name} permanently with no refund?"):
+                _autosave(candidate, path, ui.show)
+                return candidate
+    return campaign
+
+
+def _refit_preview(charge: int, resulting_credits: int) -> str:
+    if charge > 0:
+        change = f"charge {charge} credits"
+    elif charge < 0:
+        change = f"refund {-charge} credits"
+    else:
+        change = "no credit change"
+    return f"{change}; resulting credits {resulting_credits}"
+
+
+def _quote_refit(
+    campaign: CampaignState,
+    ship_id: str,
+    replacement: ShipSpec,
+) -> tuple[CampaignState | None, int, int, str | None]:
+    candidate = deepcopy(campaign)
+    try:
+        charge = reequip_ship(candidate, ship_id, replacement)
+    except CampaignEconomyError as exc:
+        if str(exc) != "insufficient credits":
+            raise
+        funded = deepcopy(campaign)
+        funded.credits += ship_points(replacement)
+        charge = reequip_ship(funded, ship_id, replacement)
+        return None, charge, campaign.credits - charge, "insufficient credits"
+    return candidate, charge, candidate.credits, None
+
+
+def _campaign_fitting(
+    campaign: CampaignState,
+    ship_id: str,
+    path: Path,
+    ui: TerminalUI,
+    kind: _FittingKind,
+    slot_id: int | None,
+) -> CampaignState:
+    ship = _ship(campaign, ship_id)
+
+    def validate_replacement(replacement: ShipSpec) -> None:
+        funded = deepcopy(campaign)
+        funded.credits += ship_points(replacement)
+        reequip_ship(funded, ship_id, replacement)
+
+    choices = fitting_choices(
+        ship.spec,
+        campaign.faction,
+        kind=kind,
+        slot_id=slot_id,
+        is_flagship=(ship_id == campaign.flagship_id),
+        candidate_validator=validate_replacement,
+    )
+    options: list[MenuOption] = []
+    candidates: dict[str, CampaignState] = {}
+    replacements: list[FittingChoice] = list(choices)
+    removed = deepcopy(ship.spec)
+    if kind == "weapon" and slot_id is not None and slot_id in removed.weapons:
+        removed.weapons.pop(slot_id)
+        replacements.insert(0, FittingChoice("remove", "Remove", "", removed))
+    elif kind == "upgrade" and slot_id is not None:
+        removed.upgrade_ids.pop(slot_id)
+        replacements.insert(0, FittingChoice("remove", "Remove", "", removed))
+    elif kind == "doctrine" and removed.doctrine_id is not None:
+        removed.doctrine_id = None
+        replacements.insert(0, FittingChoice("remove", "Remove", "", removed))
+    for choice in replacements:
+        try:
+            candidate, charge, balance, reason = _quote_refit(campaign, ship_id, choice.replacement)
+        except CampaignEconomyError:
+            continue
+        preview = _refit_preview(charge, balance)
+        details = f"{choice.details}\n{preview}" if choice.details else preview
+        options.append(MenuOption(choice.value, choice.label, details, reason))
+        if candidate is not None:
+            candidates[choice.value] = candidate
+    selected = ui.choose(
+        f"Choose {kind}",
+        options,
+        context=_campaign_ship_context(campaign, ship_id),
+    )
+    if selected is None:
+        return campaign
+    option = next(item for item in options if item.value == selected)
+    if option.disabled_reason:
+        ui.show(option.disabled_reason)
+        return campaign
+    candidate = candidates[selected]
+    if not ui.confirm(f"Apply {option.label}? {option.details}"):
+        return campaign
+    _autosave(candidate, path, ui.show)
+    return candidate
+
+
+def _new_campaign(path: Path, ui: TerminalUI) -> CampaignState | None:
+    if path.exists() and not ui.confirm("Replace the existing campaign save?"):
         return None
-    name = _read(input_fn, "  Fleet and commander name: ")
-    if name is None or name.lower() in {"cancel", "back"} or not name:
+    faction_raw = ui.choose(
+        "Campaign faction",
+        [MenuOption(faction.value, faction.value.replace("_", " ").title()) for faction in Faction],
+    )
+    if faction_raw is None:
         return None
-    seed_raw = _read(input_fn, "  Campaign seed (blank for random, cancel to stop): ")
-    if seed_raw is None or seed_raw.lower() in {"cancel", "back"}:
+    name = ui.text("Commander name", "campaign.name")
+    if name is None or not name:
+        return None
+    seed_raw = ui.text("Campaign seed", "campaign.seed", "")
+    if seed_raw is None:
         return None
     try:
         seed = None if not seed_raw else int(seed_raw)
         if seed is not None and seed < 0:
             raise ValueError
     except ValueError:
-        output_fn("  Seed must be a non-negative integer.")
+        ui.show("Seed must be a non-negative integer.")
         return None
-    fleet = run_fleet_builder(faction=faction, budget=INITIAL_CREDITS, name=name)
+    fleet = run_fleet_builder(
+        faction=Faction(faction_raw),
+        budget=INITIAL_CREDITS,
+        name=name,
+        ui=ui,
+        candidate_validator=validate_campaign_fleet,
+    )
     if fleet is None:
-        output_fn("  Fleet building cancelled; existing save unchanged.")
+        ui.show("Fleet building cancelled; existing save unchanged.")
         return None
     try:
         campaign = new_campaign(fleet, name, seed)
     except ValueError as exc:
-        output_fn(f"  Campaign cannot start: {exc}")
+        ui.show(f"Campaign cannot start: {exc}")
         return None
-    _autosave(campaign, path, output_fn, explicit=True)
+    _autosave(campaign, path, ui.show, explicit=True)
     return campaign
 
 
 def run_campaign_menu(
     *,
     save_path: Path | None = None,
-    input_fn: Callable[[str], str] = input,
-    output_fn: Callable[[str], None] = print,
-    controller_factory: Callable[[BattleSession], LocalBattleController] = LocalBattleController,
+    ui: TerminalUI | None = None,
+    controller_factory: Callable[[BattleSession], LocalBattleController] | None = None,
 ) -> None:
-    """Run one New/Continue campaign session."""
+    """Run the menu-driven New/Continue campaign session."""
+    ui = ui or TerminalUI()
     path = save_path if save_path is not None else default_campaign_path()
     while True:
-        output_fn(_MENU)
-        raw = _read(input_fn, "  campaign menu> ")
-        if raw is None or raw.lower() in {"back", "quit", "exit"}:
+        choice = ui.choose(
+            "Campaign",
+            [
+                MenuOption("new", "New campaign"),
+                MenuOption("continue", "Continue campaign"),
+                MenuOption("back", "Back"),
+            ],
+        )
+        if choice is None or choice == "back":
             return
-        choice = raw.lower()
-        if choice in {"new", "1"}:
-            campaign = _new_campaign(path, input_fn, output_fn)
+        if choice == "new":
+            campaign = _new_campaign(path, ui)
             if campaign is not None:
-                _interval(campaign, path, input_fn, output_fn, controller_factory)
+                _interval(campaign, path, ui, controller_factory)
                 return
-        elif choice in {"continue", "2"}:
+        elif choice == "continue":
             if not path.is_file():
-                output_fn("  No saved campaign exists.")
+                ui.show("No saved campaign exists.")
                 continue
             try:
                 campaign = load_campaign(path)
-            except CampaignSaveError as exc:
-                output_fn(f"  Could not continue campaign: {exc}")
+            except (CampaignSaveError, UnicodeError) as exc:
+                ui.show(f"Could not continue campaign: {exc}")
                 continue
-            _interval(campaign, path, input_fn, output_fn, controller_factory)
+            _interval(campaign, path, ui, controller_factory)
             return
-        else:
-            output_fn("  Choose new, continue, or back.")

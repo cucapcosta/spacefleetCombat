@@ -32,6 +32,20 @@ def relative_bearing(ship_heading: float, absolute_bearing: float) -> float:
     return diff
 
 
+def relative_bearing_360(ship_heading: float, absolute_bearing: float) -> float:
+    """Clockwise bearing from the ship's prow, in [0, 360).
+
+    This is the player-facing convention: 0° ahead, 90° starboard,
+    180° astern, 270° port.  Fire orders use it too.
+    """
+    return normalize_angle(absolute_bearing - ship_heading)
+
+
+def absolute_bearing(ship_heading: float, relative: float) -> float:
+    """Convert a prow-relative bearing (0° ahead, clockwise) to absolute."""
+    return normalize_angle(ship_heading + relative)
+
+
 def is_in_arc(ship_heading: float, bearing_to_target: float, arc: Arc) -> bool:
     """Return *True* if *bearing_to_target* (absolute) falls inside *arc*."""
     rel = relative_bearing(ship_heading, bearing_to_target)
@@ -69,13 +83,13 @@ def arc_name(arc: Arc) -> str:
 
 
 def arc_range_str(arc: Arc) -> str:
-    """Describe the angular range of an arc relative to heading."""
+    """Describe the angular range of an arc as prow-relative bearings."""
     return {
-        Arc.PROW: "345°–015° from heading",
-        Arc.PORT: "225°–315° from heading",
-        Arc.STARBOARD: "045°–135° from heading",
-        Arc.AFT: "135°–225° from heading",
-        Arc.DORSAL: "225°–135° (everything except aft)",
+        Arc.PROW: "315°–045° rel",
+        Arc.PORT: "225°–315° rel",
+        Arc.STARBOARD: "045°–135° rel",
+        Arc.AFT: "135°–225° rel",
+        Arc.DORSAL: "225°–135° rel (everything except aft)",
     }.get(arc, "?")
 
 

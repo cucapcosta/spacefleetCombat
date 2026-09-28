@@ -15,8 +15,22 @@ from spacefleet.core.types import DetectionLevel, Vector2D
 from spacefleet.spatial.geometry import bearing_from_to, distance
 
 if TYPE_CHECKING:
+    from spacefleet.core.game_state import CoreGameState
     from spacefleet.dice import DiceRoller
     from spacefleet.models.ship import Ship
+
+
+def effective_sensor_range(observer: Ship, state: CoreGameState | None = None) -> float:
+    """Hull sensor range plus fleet passives (e.g. ``sensor_mastery``).
+
+    Stance modifiers are applied separately by :func:`compute_detection_level`.
+    """
+    base = observer.hull.sensor_range
+    if state is None:
+        return base
+    from spacefleet.commander.passive_skills import fleet_sensor_range
+
+    return fleet_sensor_range(state, observer, base)
 
 
 def compute_detection_level(
@@ -24,6 +38,7 @@ def compute_detection_level(
     target: Ship,
     *,
     force_min_level: DetectionLevel | None = None,
+    state: CoreGameState | None = None,
 ) -> DetectionLevel:
     """Compute what detection level *observer* has on *target*.
 
@@ -45,7 +60,7 @@ def compute_detection_level(
 
     observer_mod = StanceRegistry.get_for(observer.stance).own_sensor_range_modifier
     target_mod = StanceRegistry.get_for(target.stance).detection_signature_modifier
-    sr = observer.hull.sensor_range * observer_mod * target_mod
+    sr = effective_sensor_range(observer, state) * observer_mod * target_mod
 
     if dist <= sr * 0.75:
         level = DetectionLevel.IDENTIFIED
@@ -67,6 +82,7 @@ def best_detection_level(
     target: Ship,
     *,
     force_min_level: DetectionLevel | None = None,
+    state: CoreGameState | None = None,
 ) -> DetectionLevel:
     """Return the best detection level *any* observer has on *target*.
 
@@ -76,7 +92,7 @@ def best_detection_level(
     """
     best = DetectionLevel.UNDETECTED
     for obs in observers:
-        level = compute_detection_level(obs, target, force_min_level=force_min_level)
+        level = compute_detection_level(obs, target, force_min_level=force_min_level, state=state)
         if level.value > best.value:
             best = level
             if best == DetectionLevel.IDENTIFIED:
@@ -122,6 +138,7 @@ def build_contact_info(
     dice_roller: DiceRoller,
     *,
     force_min_level: DetectionLevel | None = None,
+    state: CoreGameState | None = None,
 ) -> ContactInfo | None:
     """Build a :class:`ContactInfo` for *target* as seen by *observer*.
 
@@ -131,6 +148,7 @@ def build_contact_info(
         observer,
         target,
         force_min_level=force_min_level,
+        state=state,
     )
 
     if level == DetectionLevel.UNDETECTED:

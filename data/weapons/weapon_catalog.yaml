@@ -21,6 +21,8 @@ weapons:
     strength: 4
     range: 45
     cost: 25
+    special:
+      fire_control: 0.05
     description: "Standard-issue broadside macro-cannons."
 
   macro_cannon_3:
@@ -30,6 +32,8 @@ weapons:
     strength: 6
     range: 45
     cost: 40
+    special:
+      fire_control: 0.10
     description: "Heavy broadside batteries. The backbone of Imperial gunnery."
 
   macro_cannon_4:
@@ -39,6 +43,8 @@ weapons:
     strength: 8
     range: 60
     cost: 60
+    special:
+      fire_control: 0.15
     description: "Capital-grade batteries found on battleships and battlecruisers."
 
   mars_pattern_battery:
@@ -48,6 +54,8 @@ weapons:
     strength: 10
     range: 60
     cost: 80
+    special:
+      fire_control: 0.20
     requires_forge_world: true
     description: "Rare, devastating broadside arrays manufactured only at major Forge Worlds."
 
@@ -58,6 +66,8 @@ weapons:
     strength: 5
     range: 60
     cost: 45
+    special:
+      fire_control: 0.15
     requires_forge_world: true
     description: "Long-range variant batteries. Less firepower but greater reach."
 
@@ -122,7 +132,9 @@ weapons:
     speed: 25
     range: 40
     cost: 35
-    description: "Extended-range torpedoes with improved guidance. Slower but longer reach."
+    special:
+      fire_control: 0.25
+    description: "Extended-range torpedoes with improved guidance. Slower but longer reach and tighter aim."
 
   melta_torpedoes:
     name: "Melta Torpedoes"

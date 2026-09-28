@@ -2,11 +2,18 @@
 
 from __future__ import annotations
 
+import pytest
+
 from spacefleet.combat.boarding import resolve_boarding
 from spacefleet.combat.critical_hits import (
     CriticalResult,
     apply_critical_hit,
     roll_critical_hit,
+)
+from spacefleet.core.game_loop import (
+    check_projectile_collisions,
+    cleanup_projectiles,
+    move_projectiles,
 )
 from spacefleet.core.types import (
     Arc,
@@ -17,6 +24,7 @@ from spacefleet.core.types import (
     WeaponType,
 )
 from spacefleet.dice import DiceRoller
+from spacefleet.models.projectile import Projectile
 from spacefleet.models.ship import Ship
 from spacefleet.models.ship_profile import HullProfile, WeaponSlotDef
 from spacefleet.models.weapon import WeaponMount, WeaponProfile
@@ -102,6 +110,77 @@ def _make_ship(
         morale=100,
         morale_max=100,
     )
+
+
+def _make_projectile(*, speed: float = 60.0, max_range: float = 45.0) -> Projectile:
+    return Projectile(
+        id="salvo_test",
+        position=Vector2D(0.0, 0.0),
+        bearing=0.0,
+        speed=speed,
+        weapon_mount=_make_weapon(),
+        attacker_id="attacker",
+        attacker_name="Attacker",
+        attacker_faction=Faction.IMPERIAL_NAVY,
+        origin=Vector2D(0.0, 0.0),
+        max_range=max_range,
+    )
+
+
+# ── Projectile final segment ──────────────────────────────────
+
+
+@pytest.mark.parametrize("target_distance", [40.0, 45.0])
+def test_projectile_sweeps_final_range_limited_segment(target_distance: float) -> None:
+    projectile = _make_projectile()
+    target = _make_ship("Target", faction=Faction.CHAOS_FLEET)
+    target.position = Vector2D(0.0, target_distance)
+
+    movements = move_projectiles([projectile], fraction=1.0)
+    impacts = check_projectile_collisions(movements, [target], DiceRoller(seed=1))
+
+    assert projectile.position == Vector2D(0.0, 45.0)
+    assert projectile.distance_traveled == 45.0
+    assert [impact[1] for impact in impacts] == [target]
+
+
+def test_projectile_hit_radius_does_not_extend_max_range() -> None:
+    projectile = _make_projectile()
+    target = _make_ship("Target", faction=Faction.CHAOS_FLEET)
+    target.position = Vector2D(0.0, 46.0)
+
+    movements = move_projectiles([projectile], fraction=1.0)
+    impacts = check_projectile_collisions(movements, [target], DiceRoller(seed=1))
+
+    assert impacts == []
+    assert target.hull_current == target.hull_max
+
+
+def test_projectile_missing_at_final_segment_expires_during_cleanup() -> None:
+    projectile = _make_projectile()
+    projectiles = [projectile]
+
+    movements = move_projectiles(projectiles, fraction=1.0)
+    assert check_projectile_collisions(movements, [], DiceRoller(seed=1)) == []
+    assert projectile.alive
+
+    assert cleanup_projectiles(projectiles) == [projectile]
+    assert not projectile.alive
+    assert projectiles == []
+
+
+def test_projectile_impact_is_resolved_once_and_dead_projectile_does_not_move() -> None:
+    projectile = _make_projectile()
+    target = _make_ship("Target", faction=Faction.CHAOS_FLEET)
+    target.position = Vector2D(0.0, 40.0)
+    movements = move_projectiles([projectile], fraction=1.0)
+
+    impacts = check_projectile_collisions(movements, [target], DiceRoller(seed=1))
+
+    assert len(impacts) == 1
+    assert not projectile.alive
+    assert check_projectile_collisions(movements, [target], DiceRoller(seed=1)) == []
+    assert move_projectiles([projectile], fraction=1.0) == []
 
 
 # ── Critical Hit Table ────────────────────────────────────────

@@ -185,7 +185,7 @@ def _parse_action(ship_id: str, cmd: str, args: list[str]) -> dict[str, Any] | N
     """Parse user input into a command message dict."""
     if cmd == "fire":
         if len(args) < 2:
-            print("  Usage: fire <weapon#> <bearing>")
+            print("  Usage: fire <weapon#> <bearing> (relative to prow: 0 ahead, 90 starboard)")
             return None
         try:
             return {

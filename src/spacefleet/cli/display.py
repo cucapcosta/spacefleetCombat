@@ -192,6 +192,7 @@ def format_contact(
     *,
     detected: bool = True,
     contact_info: ContactInfo | None = None,
+    show_target_ids: bool = True,
 ) -> str:
     """Brief contact readout as seen from *observer*.
 
@@ -212,7 +213,7 @@ def format_contact(
             tag_color = C.CYAN if friendly else C.YELLOW
             return (
                 f"  {colored('[BLIP]', tag_color)} {ci.display_name}"
-                f" — bearing ~{approx_brg:.0f}° ({direction}),"
+                f" — bearing ~{rel % 360:.0f}° rel ({direction}),"
                 f" ~{approx_dist:.0f} GU"
             )
 
@@ -222,10 +223,10 @@ def format_contact(
             rel = relative_bearing(observer.heading, brg)
             direction = _direction_label(rel)
             tag_color = C.CYAN if friendly else C.YELLOW
-            target_id = f" (id={ship.id})" if ci.targetable else ""
+            target_id = f" (id={ship.id})" if ci.targetable and show_target_ids else ""
             return (
                 f"  {colored('[CONTACT]', tag_color)} {ci.display_name}{target_id}"
-                f" — bearing {brg:.0f}° ({direction}),"
+                f" — bearing {rel % 360:.0f}° rel ({direction}),"
                 f" range {d:.0f} GU"
             )
 
@@ -243,14 +244,14 @@ def format_contact(
         else:
             tag = colored("[IDENTIFIED]", C.GREEN)
             name = colored(ship.name, C.BRIGHT_RED)
-        target_id = f" (id={ship.id})" if ci.targetable else ""
+        target_id = f" (id={ship.id})" if ci.targetable and show_target_ids else ""
 
         return (
             f"  {tag}"
             f" {name}"
             f"{target_id}"
             f" [{ship.hull.classification.value}]"
-            f" — bearing {brg:.0f}° ({direction}),"
+            f" — bearing {rel % 360:.0f}° rel ({direction}),"
             f" range {d:.0f} GU\n"
             f"    Hull: {hull_str}"
             f"  Shields: {ship.shields_current}/{ship.shields_max}"
@@ -268,7 +269,7 @@ def format_contact(
     if not detected:
         return (
             f"  {colored('CONTACT', C.YELLOW)}: Unidentified — "
-            f"bearing {brg:.0f}° ({direction}), range {dist_val:.0f} GU"
+            f"bearing {rel % 360:.0f}° rel ({direction}), range {dist_val:.0f} GU"
         )
 
     hull_str = health_bar(ship.hull_current, ship.hull_max)
@@ -276,7 +277,7 @@ def format_contact(
 
     return (
         f"  {colored(ship.name, C.BRIGHT_RED)} [{ship.hull.classification.value}]"
-        f" — bearing {brg:.0f}° ({direction}), range {dist_val:.0f} GU\n"
+        f" — bearing {rel % 360:.0f}° rel ({direction}), range {dist_val:.0f} GU\n"
         f"    Hull: {hull_str}  Shields: {ship.shields_current}/{ship.shields_max}"
         f"  Speed: {ship.speed:.0f} GU/turn  Heading: {ship.heading:.0f}°"
         f"{destroyed}"
@@ -394,7 +395,7 @@ def format_available_actions(actions_remaining: int) -> str:
         f"\n  {bold(f'Actions remaining: {actions_remaining}')}",
         "",
         f"  {colored('fire', C.BRIGHT_YELLOW)} <weapon#> <bearing>"
-        "   — Fire a weapon at a bearing (e.g. fire 1 270)",
+        "   — Fire at a bearing rel. to prow: 0 ahead, 90 starboard, 270 port",
         f"  {colored('ahead', C.BRIGHT_CYAN)} [speed]"
         "               — Set speed (no arg = full, e.g. ahead 15)",
         f"  {colored('stop', C.BRIGHT_CYAN)}                       — All stop (same as ahead 0)",
@@ -454,6 +455,7 @@ def format_weapons_list(
                     continue
                 dist_val = distance(ship.position, t.position)
                 brg = bearing_from_to(ship.position, t.position)
+                rel = relative_bearing(ship.heading, brg)
                 in_arc = is_in_arc(ship.heading, brg, w.arc)
                 in_range = dist_val <= w.weapon.range
                 label = ci.display_name
@@ -461,13 +463,13 @@ def format_weapons_list(
                 if in_arc and in_range:
                     lines.append(
                         f"        → {colored(label, C.GREEN)}"
-                        f" at {dist_val:.0f} GU, brg {brg:.0f}°"
+                        f" at {dist_val:.0f} GU, brg {rel % 360:.0f}° rel"
                         f" — {colored('IN ARC + RANGE', C.BRIGHT_GREEN)}"
                     )
                 elif in_arc:
                     lines.append(
                         f"        → {colored(label, C.YELLOW)}"
-                        f" at {dist_val:.0f} GU, brg {brg:.0f}°"
+                        f" at {dist_val:.0f} GU, brg {rel % 360:.0f}° rel"
                         f" — {colored('IN ARC, out of range', C.YELLOW)}"
                     )
                 else:
@@ -481,6 +483,7 @@ def format_weapons_list(
                     continue
                 dist_val = distance(ship.position, t.position)
                 brg = bearing_from_to(ship.position, t.position)
+                rel = relative_bearing(ship.heading, brg)
                 in_arc = is_in_arc(ship.heading, brg, w.arc)
                 in_range = dist_val <= w.weapon.range
 
@@ -610,8 +613,6 @@ def format_drift_report(
 # Grid dimensions (odd so centre cell is exact)
 _RADAR_W = 31
 _RADAR_H = 17
-_CENTER_X = _RADAR_W // 2
-_CENTER_Y = _RADAR_H // 2
 
 
 def _heading_arrow(heading: float) -> str:
@@ -626,6 +627,10 @@ def format_radar_view(
     projectiles: list[Projectile] | None = None,
     *,
     contact_infos: list[ContactInfo] | None = None,
+    grid_width: int = _RADAR_W,
+    grid_height: int = _RADAR_H,
+    compact_legend: bool = False,
+    legend_limit: int | None = None,
 ) -> str:
     """Render a north-up ASCII radar grid.
 
@@ -633,6 +638,11 @@ def format_radar_view(
     detection level (BLIP ``?`` / CONTACT numbered yellow /
     IDENTIFIED numbered red).
     """
+    if grid_width < 5 or grid_height < 5 or grid_width % 2 == 0 or grid_height % 2 == 0:
+        raise ValueError("radar dimensions must be odd and at least 5")
+    center_x = grid_width // 2
+    center_y = grid_height // 2
+
     # ── calculate scale ──────────────────────────────────────
     max_dist = 0.0
 
@@ -657,7 +667,7 @@ def format_radar_view(
             max_dist = d
 
     # Half-extent in GU that must fit in half the grid width/height
-    half_cells = min(_CENTER_X, _CENTER_Y) - 1  # leave 1 cell border margin
+    half_cells = min(center_x, center_y) - 1  # leave 1 cell border margin
     margin_dist = max_dist * 1.2 if max_dist > 0 else 20.0
     if margin_dist < 10.0:
         margin_dist = 10.0
@@ -667,21 +677,21 @@ def format_radar_view(
 
     # ── build grid ───────────────────────────────────────────
     empty = (dim("\u00b7"), None)
-    grid: list[list[tuple[str, str | None]]] = [[empty] * _RADAR_W for _ in range(_RADAR_H)]
+    grid: list[list[tuple[str, str | None]]] = [[empty] * grid_width for _ in range(grid_height)]
 
     # ── place projectiles ────────────────────────────────────
     for p in alive_projectiles:
         dx = p.position.x - player.position.x
         dy = p.position.y - player.position.y
-        gx = _CENTER_X + round(dx / scale)
-        gy = _CENTER_Y - round(dy / scale)
+        gx = center_x + round(dx / scale)
+        gy = center_y - round(dy / scale)
 
-        if 0 <= gx < _RADAR_W and 0 <= gy < _RADAR_H:
+        if 0 <= gx < grid_width and 0 <= gy < grid_height:
             proj_color = C.BRIGHT_YELLOW if p.attacker_faction == player.faction else C.BRIGHT_RED
             grid[gy][gx] = (colored("*", proj_color), None)
 
     # ── place contacts ───────────────────────────────────────
-    legend_entries: list[str] = []
+    legend_entries: list[tuple[bool, str]] = []
     contact_num = 0  # running counter for numbered markers
 
     if contact_infos is not None:
@@ -689,8 +699,8 @@ def format_radar_view(
             pos = ci.display_position
             dx = pos.x - player.position.x
             dy = pos.y - player.position.y
-            gx = _CENTER_X + round(dx / scale)
-            gy = _CENTER_Y - round(dy / scale)
+            gx = center_x + round(dx / scale)
+            gy = center_y - round(dy / scale)
 
             # Bearing / distance for legend (from player to display pos)
             d_val = distance(player.position, pos)
@@ -704,30 +714,49 @@ def format_radar_view(
                 marker = "?"
                 blip_color = C.CYAN if friendly else C.YELLOW
                 marker_colored = colored(marker, blip_color)
-                legend_entries.append(
-                    f"    {colored(marker, blip_color)} {ci.display_name}"
-                    f" \u2014 ~{d_val:.0f} GU, {direction}"
+                detail = (
+                    f"[BLIP] {ci.display_name} \u2014 brg ~{rel % 360:.0f}\u00b0 rel, "
+                    f"~{d_val:.0f} GU"
+                    if compact_legend
+                    else (
+                        f"{ci.display_name} \u2014 ~{d_val:.0f} GU, "
+                        f"bearing ~{rel % 360:.0f}\u00b0 rel ({direction})"
+                    )
                 )
+                legend_entries.append((not friendly, f"    {colored(marker, blip_color)} {detail}"))
             elif ci.detection_level == DetectionLevel.CONTACT:
                 contact_num += 1
                 marker = str(contact_num)
                 contact_color = C.CYAN if friendly else C.YELLOW
                 marker_colored = colored(marker, contact_color)
+                detail = (
+                    f"[CONTACT] {ci.display_name} \u2014 brg {rel % 360:.0f}\u00b0 rel, "
+                    f"{d_val:.0f} GU"
+                    if compact_legend
+                    else (
+                        f"{ci.display_name} \u2014 {d_val:.0f} GU, "
+                        f"bearing {rel % 360:.0f}\u00b0 rel ({direction})"
+                    )
+                )
                 legend_entries.append(
-                    f"    {colored(marker, contact_color)} {ci.display_name}"
-                    f" \u2014 {d_val:.0f} GU, {direction}"
+                    (not friendly, f"    {colored(marker, contact_color)} {detail}")
                 )
             else:  # IDENTIFIED
                 contact_num += 1
                 marker = str(contact_num)
                 id_color = C.BRIGHT_CYAN if friendly else C.BRIGHT_RED
                 marker_colored = colored(marker, id_color)
-                legend_entries.append(
-                    f"    {colored(marker, id_color)} {ci.display_name}"
-                    f" \u2014 {d_val:.0f} GU, {direction}"
+                detail = (
+                    f"[ID] {ci.display_name} \u2014 brg {rel % 360:.0f}\u00b0 rel, {d_val:.0f} GU"
+                    if compact_legend
+                    else (
+                        f"{ci.display_name} \u2014 {d_val:.0f} GU, "
+                        f"bearing {rel % 360:.0f}\u00b0 rel ({direction})"
+                    )
                 )
+                legend_entries.append((not friendly, f"    {colored(marker, id_color)} {detail}"))
 
-            if 0 <= gx < _RADAR_W and 0 <= gy < _RADAR_H:
+            if 0 <= gx < grid_width and 0 <= gy < grid_height:
                 grid[gy][gx] = (marker_colored, None)
     else:
         # Legacy path — no detection info
@@ -735,25 +764,30 @@ def format_radar_view(
         for idx, c in enumerate(alive_list):
             dx = c.position.x - player.position.x
             dy = c.position.y - player.position.y
-            gx = _CENTER_X + round(dx / scale)
-            gy = _CENTER_Y - round(dy / scale)
+            gx = center_x + round(dx / scale)
+            gy = center_y - round(dy / scale)
 
             marker = str(idx + 1)
-            if 0 <= gx < _RADAR_W and 0 <= gy < _RADAR_H:
+            if 0 <= gx < grid_width and 0 <= gy < grid_height:
                 grid[gy][gx] = (colored(marker, C.BRIGHT_RED), None)
 
             dist_val = distance(player.position, c.position)
             brg = bearing_from_to(player.position, c.position)
             rel = relative_bearing(player.heading, brg)
             direction = _direction_label(rel)
-            legend_entries.append(
-                f"    {colored(marker, C.BRIGHT_RED)} {c.name}"
-                f" \u2014 {dist_val:.0f} GU, {direction}"
+            detail = (
+                f"{c.name} \u2014 brg {rel % 360:.0f}\u00b0 rel, {dist_val:.0f} GU"
+                if compact_legend
+                else (
+                    f"{c.name} \u2014 {dist_val:.0f} GU, "
+                    f"bearing {rel % 360:.0f}\u00b0 rel ({direction})"
+                )
             )
+            legend_entries.append((True, f"    {colored(marker, C.BRIGHT_RED)} {detail}"))
 
     # ── place player at centre ───────────────────────────────
     arrow = colored(_heading_arrow(player.heading), C.BRIGHT_CYAN)
-    grid[_CENTER_Y][_CENTER_X] = (arrow, None)
+    grid[center_y][center_x] = (arrow, None)
 
     # ── render grid with border ──────────────────────────────
     lines: list[str] = []
@@ -761,8 +795,8 @@ def format_radar_view(
     scale_label = f"1 char \u2248 {scale:.0f} GU"
     lines.append(f"    {bold('\u2550\u2550 SCANNER \u2550\u2550')}  ({scale_label})")
 
-    top_border = "\u250c" + "\u2500" * (_RADAR_W * 2 + 1) + "\u2510"
-    bot_border = "\u2514" + "\u2500" * (_RADAR_W * 2 + 1) + "\u2518"
+    top_border = "\u250c" + "\u2500" * (grid_width * 2 + 1) + "\u2510"
+    bot_border = "\u2514" + "\u2500" * (grid_width * 2 + 1) + "\u2518"
 
     lines.append(f"    {top_border}  N")
 
@@ -778,7 +812,16 @@ def format_radar_view(
     # ── legend ───────────────────────────────────────────────
     if legend_entries:
         lines.append(f"    {bold('Contacts:')}")
-        lines.extend(legend_entries)
+        visible_entries = legend_entries
+        if legend_limit is not None and len(visible_entries) > legend_limit:
+            visible_entries = sorted(visible_entries, key=lambda entry: not entry[0])
+            shown = max(0, legend_limit - 1)
+            hidden = len(visible_entries) - shown
+            visible_entries = visible_entries[:shown]
+            lines.extend(entry[1] for entry in visible_entries)
+            lines.append(f"    {dim(f'\u2026 {hidden} more contact(s)')}")
+        else:
+            lines.extend(entry[1] for entry in visible_entries)
 
     # Projectile count
     if alive_projectiles:
@@ -816,7 +859,7 @@ def format_salvo_launch(
     return (
         f"  {bold(ship_name)} fires "
         f"{colored(weapon_name, C.BRIGHT_YELLOW)}"
-        f" at bearing {bearing:.0f}\u00b0"
+        f" at bearing {bearing:.0f}\u00b0 rel"
         f" \u2014 {colored('Salvo away!', C.BRIGHT_CYAN)}"
         f" ({speed:.0f} GU/turn, max {max_range:.0f} GU)"
     )
@@ -854,6 +897,6 @@ def format_lance_miss(ship_name: str, weapon_name: str, bearing: float) -> str:
     return (
         f"  {bold(ship_name)} fires "
         f"{colored(weapon_name, C.BRIGHT_YELLOW)}"
-        f" at bearing {bearing:.0f}\u00b0"
-        f"\n    {dim(f'No target found on bearing {bearing:.0f}\u00b0')}"
+        f" at bearing {bearing:.0f}\u00b0 rel"
+        f"\n    {dim(f'No target found on bearing {bearing:.0f}\u00b0 rel')}"
     )

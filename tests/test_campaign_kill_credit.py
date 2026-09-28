@@ -121,6 +121,7 @@ def test_weapon_kill_credits_attacking_ship_owner() -> None:
     attacker = state.ships[attacker_id]
     target = state.ships[target_id]
     attacker.position = Vector2D(0.0, 0.0)
+    attacker.heading = 0.0
     attacker.weapons = [WeaponMount(slot_id=1, slot_name="Lance", arc=Arc.PROW, weapon=LANCE_2)]
     target.position = Vector2D(0.0, 10.0)
     target.shields_current = 0

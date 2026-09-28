@@ -40,8 +40,11 @@ from spacefleet.models.projectile import Projectile
 from spacefleet.models.ship import Ship
 from spacefleet.spatial.detection import ContactInfo, build_contact_info
 from spacefleet.spatial.geometry import (
+    absolute_bearing,
+    arc_range_str,
     bearing_from_to,
     is_in_arc,
+    relative_bearing_360,
 )
 
 if TYPE_CHECKING:
@@ -325,16 +328,20 @@ class DemoBattle:
             print(f"  {weapon.weapon.name} is on cooldown.")
             return False
 
-        # Parse bearing
+        # Parse bearing (relative to prow: 0 ahead, 90 starboard, 270 port)
         try:
-            bearing = float(args[1]) % 360.0
+            relative = float(args[1]) % 360.0
         except ValueError:
             print(f"  Invalid bearing: '{args[1]}'")
             return False
+        bearing = absolute_bearing(self.player.heading, relative)
 
         # Validate bearing is within weapon arc
         if not is_in_arc(self.player.heading, bearing, weapon.arc):
-            print(f"  Bearing {bearing:.0f}\u00b0 is outside {weapon.arc.value} arc.")
+            print(
+                f"  Bearing {relative:.0f}\u00b0 rel is outside {weapon.arc.value} arc "
+                f"({arc_range_str(weapon.arc)})."
+            )
             return False
 
         # ── Lance (instant-hit ray-cast) ──
@@ -352,7 +359,7 @@ class DemoBattle:
                     format_lance_miss(
                         self.player.name,
                         weapon.weapon.name,
-                        bearing,
+                        relative,
                     )
                 )
             else:
@@ -381,7 +388,7 @@ class DemoBattle:
             format_salvo_launch(
                 self.player.name,
                 weapon.weapon.name,
-                bearing,
+                relative,
                 weapon.weapon.speed,
                 weapon.weapon.range,
             )
@@ -484,9 +491,13 @@ class DemoBattle:
     # Display helpers
     # ════════════════════════════════════════════════════════
 
+    def _rel(self, absolute: float) -> float:
+        return relative_bearing_360(self.player.heading, absolute)
+
     def _print_weapon_hint(self) -> None:
         print(
             "  Usage: fire <weapon#> <bearing>\n"
+            "  Bearing is relative to your prow: 0 ahead, 90 starboard, 270 port.\n"
             "  Example: fire 1 270\n"
             "  Weapons: " + ", ".join(f"[{w.slot_id}] {w.weapon.name}" for w in self.player.weapons)
         )
@@ -504,7 +515,8 @@ class DemoBattle:
             f"  Your ship drifts between actions based on speed & heading."
         )
         print(
-            f"  Fire weapons at a {bold('bearing')} (degrees, 0\u00b0 = north)."
+            f"  Fire weapons at a {bold('bearing')} relative to your prow"
+            f" (0\u00b0 ahead, 90\u00b0 starboard, 270\u00b0 port)."
             f"  Batteries fire salvos that travel; lances hit instantly."
         )
         print()
@@ -647,7 +659,6 @@ class DemoBattle:
                 print(
                     f"\n  {colored('\u26a0 INCOMING FIRE!', C.BRIGHT_RED)}"
                     f"  {target.name} fires {weapon.weapon.name}"
-                    f" at bearing {bearing:.0f}\u00b0"
                 )
             else:
                 # Lance / instant-hit
@@ -687,14 +698,14 @@ class DemoBattle:
         elif ci.detection_level == DetectionLevel.BLIP:
             print(
                 f"\n  {colored('\u2605 NEW CONTACT', C.BRIGHT_YELLOW)}:"
-                f" Unknown contact — bearing ~{ci.true_bearing:.0f}\u00b0,"
+                f" Unknown contact — bearing ~{self._rel(ci.true_bearing):.0f}\u00b0 rel,"
                 f" ~{ci.true_distance:.0f} GU"
             )
         elif ci.detection_level == DetectionLevel.CONTACT:
             print(
                 f"\n  {colored('\u2605 NEW CONTACT', C.BRIGHT_YELLOW)}:"
                 f" {ci.display_name}"
-                f" detected at bearing {ci.true_bearing:.0f}\u00b0,"
+                f" detected at bearing {self._rel(ci.true_bearing):.0f}\u00b0 rel,"
                 f" range {ci.true_distance:.0f} GU"
             )
         else:
@@ -702,6 +713,6 @@ class DemoBattle:
             print(
                 f"\n  {colored('\u2605 NEW CONTACT', C.BRIGHT_YELLOW)}:"
                 f" {new_target.name}"
-                f" detected at bearing {ci.true_bearing:.0f}\u00b0,"
+                f" detected at bearing {self._rel(ci.true_bearing):.0f}\u00b0 rel,"
                 f" range {ci.true_distance:.0f} GU"
             )

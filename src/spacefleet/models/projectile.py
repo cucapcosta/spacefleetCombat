@@ -44,14 +44,11 @@ class Projectile:
             return (self.position, self.position)
 
         old = self.position
-        move_dist = self.speed * fraction
+        remaining_range = max(0.0, self.max_range - self.distance_traveled)
+        move_dist = min(self.speed * fraction, remaining_range)
         direction = heading_to_vector(self.bearing)
         self.position = self.position + direction * move_dist
         self.distance_traveled += move_dist
-
-        # Expire if beyond max range
-        if self.distance_traveled >= self.max_range:
-            self.alive = False
 
         return (old, self.position)
 

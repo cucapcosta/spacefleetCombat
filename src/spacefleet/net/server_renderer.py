@@ -7,6 +7,7 @@ detection/fog-of-war system.
 
 from __future__ import annotations
 
+from copy import copy, deepcopy
 from typing import TYPE_CHECKING
 
 from spacefleet.cli.colors import C, bold, colored, dim, health_bar
@@ -88,11 +89,71 @@ class ServerRenderer:
 
     # ── Per-ship brief status ──────────────────────────────
 
+    def preview_contacts(
+        self,
+        observer: Ship,
+        state: GameState,
+        player_id: str | None = None,
+    ) -> list[ContactInfo]:
+        """Return contacts without advancing the authoritative simulation RNG."""
+        preview_state = copy(state)
+        preview_state.dice = deepcopy(state.dice)
+        return self._get_contacts(observer, preview_state, player_id)
+
+    def preview_ship_brief(
+        self,
+        ship: Ship,
+        state: GameState,
+        player_id: str,
+    ) -> str:
+        """Render a ship brief without advancing the authoritative simulation RNG."""
+        preview_state = copy(state)
+        preview_state.dice = deepcopy(state.dice)
+        return self.render_ship_brief(ship, preview_state, player_id, show_target_ids=False)
+
+    def preview_query(
+        self,
+        player_id: str,
+        ship: Ship,
+        query: str,
+        state: GameState,
+    ) -> str:
+        """Render a free query without advancing the authoritative simulation RNG."""
+        preview_state = copy(state)
+        preview_state.dice = deepcopy(state.dice)
+        return self.render_query(player_id, ship, query, preview_state, show_target_ids=False)
+
+    def preview_scanner(
+        self,
+        observer: Ship,
+        state: GameState,
+        player_id: str,
+        *,
+        grid_width: int = 31,
+        grid_height: int = 17,
+        compact_legend: bool = False,
+        legend_limit: int | None = None,
+    ) -> str:
+        """Render the scanner without advancing the authoritative simulation RNG."""
+        contacts = self.preview_contacts(observer, state, player_id)
+        return format_radar_view(
+            observer,
+            [contact.ship for contact in contacts],
+            state.projectiles,
+            contact_infos=contacts,
+            grid_width=grid_width,
+            grid_height=grid_height,
+            compact_legend=compact_legend,
+            legend_limit=legend_limit,
+        )
+
     def render_ship_brief(
         self,
         ship: Ship,
         state: GameState,
         player_id: str,
+        *,
+        show_target_ids: bool = True,
     ) -> str:
         """Brief status + contacts for a single ship (shown before its prompt)."""
         lines: list[str] = []
@@ -116,7 +177,14 @@ class ServerRenderer:
         # Contacts visible from this ship (merged fleet sensors)
         contacts = self._get_contacts(ship, state, player_id)
         for ci in contacts:
-            lines.append(format_contact(ci.ship, ship, contact_info=ci))
+            lines.append(
+                format_contact(
+                    ci.ship,
+                    ship,
+                    contact_info=ci,
+                    show_target_ids=show_target_ids,
+                )
+            )
 
         return "\n".join(lines)
 
@@ -153,6 +221,8 @@ class ServerRenderer:
         ship: Ship,
         query: str,
         state: GameState,
+        *,
+        show_target_ids: bool = True,
     ) -> str:
         """Render a free-action query (status, scan, weapons)."""
         if query == "status":
@@ -169,7 +239,15 @@ class ServerRenderer:
                 state.projectiles,
                 contact_infos=contacts,
             )
-            contact_lines = [format_contact(ci.ship, ship, contact_info=ci) for ci in contacts]
+            contact_lines = [
+                format_contact(
+                    ci.ship,
+                    ship,
+                    contact_info=ci,
+                    show_target_ids=show_target_ids,
+                )
+                for ci in contacts
+            ]
             return radar + "\n" + "\n".join(contact_lines)
 
         if query == "weapons":
@@ -277,6 +355,7 @@ class ServerRenderer:
                     fleet,
                     ship,
                     force_min_level=fire_boost,
+                    state=state,
                 )
                 force_level = merged if merged != DetectionLevel.UNDETECTED else None
 
@@ -285,6 +364,7 @@ class ServerRenderer:
                 ship,
                 state.dice,
                 force_min_level=force_level,
+                state=state,
             )
             if ci is not None:
                 ci.is_friendly = is_friendly or is_own_fleet
@@ -316,11 +396,9 @@ class ServerRenderer:
             # Enemy lance fire — visible if any player ship can see it
             if self._is_near_player(event.ship, player_ship_ids, state):
                 if event.result is None:
-                    return f"  {
-                        dim(
-                            f'Enemy lance fire at bearing {event.bearing:.0f}\u00b0 — no target hit'
-                        )
-                    }"
+                    return (
+                        f"  {dim(f'{event.ship.name} fires {event.weapon_name} — no target hit')}"
+                    )
                 return (
                     f"  {colored('\u26a0 INCOMING FIRE!', C.BRIGHT_RED)}\n"
                     + format_attack_result(event.result)
@@ -341,7 +419,6 @@ class ServerRenderer:
                     f"  {colored('\u26a0 INCOMING FIRE!', C.BRIGHT_RED)}"
                     f"  {event.ship.name} fires"
                     f" {event.weapon_name}"
-                    f" at bearing {event.bearing:.0f}\u00b0"
                 )
             return None
 

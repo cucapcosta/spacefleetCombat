@@ -25,7 +25,7 @@ def parse_action_command(ship_id: str, tokens: list[str]) -> dict[str, object] |
 
     if command == "fire":
         if len(args) < 2:
-            return "Usage: fire <weapon#> <bearing>."
+            return "Usage: fire <weapon#> <bearing> (relative to prow: 0 ahead, 90 starboard)."
         try:
             slot = int(args[0])
         except ValueError:

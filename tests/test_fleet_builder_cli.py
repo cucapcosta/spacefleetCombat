@@ -227,14 +227,19 @@ def test_run_fleet_builder_is_exported() -> None:
 def test_run_fleet_builder_returns_completed_fleet(monkeypatch) -> None:
     from spacefleet.cli.fleet_builder_cmd import run_fleet_builder
     from spacefleet.core.types import Faction
+    from tests.terminal_ui_helpers import FakeTerminalUI
 
-    lines = iter(["buy sword_frigate ISS Blade", "done"])
-    monkeypatch.setattr("builtins.input", lambda _prompt: next(lines))
+    ui = FakeTerminalUI(
+        choices=["add_ship", "sword_frigate", "done"],
+        texts=["ISS Blade"],
+        confirmations=[True],
+    )
 
     fleet = run_fleet_builder(
         faction=Faction.IMPERIAL_NAVY,
         budget=800,
         name="Campaign Fleet",
+        ui=ui,
     )
 
     assert fleet is not None
@@ -245,14 +250,16 @@ def test_run_fleet_builder_returns_completed_fleet(monkeypatch) -> None:
 def test_run_fleet_builder_cancel_returns_none(monkeypatch) -> None:
     from spacefleet.cli.fleet_builder_cmd import run_fleet_builder
     from spacefleet.core.types import Faction
+    from tests.terminal_ui_helpers import FakeTerminalUI
 
-    monkeypatch.setattr("builtins.input", lambda _prompt: "cancel")
+    ui = FakeTerminalUI(choices=["cancel"], confirmations=[True])
 
     assert (
         run_fleet_builder(
             faction=Faction.IMPERIAL_NAVY,
             budget=800,
             name="Campaign Fleet",
+            ui=ui,
         )
         is None
     )

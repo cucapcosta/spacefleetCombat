@@ -15,6 +15,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+from spacefleet.combat.fire_control import bearing_spread, lock_level
 from spacefleet.combat.projectile_resolution import resolve_lance_ray
 from spacefleet.commander.abilities import AreaHullDamageHitEvent
 from spacefleet.commander.passive_skills import PassiveBus
@@ -32,6 +33,7 @@ from spacefleet.phases.command_phase import (
     resolve_command_phase,
 )
 from spacefleet.phases.movement_phase import MoveOrder, resolve_movement_phase
+from spacefleet.spatial.geometry import absolute_bearing, relative_bearing_360
 from spacefleet.spatial.geometry import distance as geo_distance
 
 if TYPE_CHECKING:
@@ -58,7 +60,7 @@ if TYPE_CHECKING:
 class LanceFireEvent(TurnEvent):
     ship: Ship
     weapon_name: str
-    bearing: float
+    bearing: float  # prow-relative, as fired
     result: AttackResult | None  # None = miss (no target on bearing)
 
 
@@ -66,7 +68,7 @@ class LanceFireEvent(TurnEvent):
 class SalvoLaunchEvent(TurnEvent):
     ship: Ship
     weapon_name: str
-    bearing: float
+    bearing: float  # prow-relative, as fired (after gunnery spread)
     speed: float
     max_range: float
 
@@ -203,6 +205,9 @@ def resolve_turn(
     TurnLog with all events that happened (for rendering).
     """
     log = TurnLog(turn=state.turn)
+    # Last turn's muzzle flashes: the scanner showed these ships as at least
+    # CONTACT while orders were given, so fire-control locks honour that.
+    revealed_by_fire = frozenset(state.fired_this_turn)
     state.fired_this_turn.clear()
 
     def emit(event: TurnEvent) -> None:
@@ -253,59 +258,66 @@ def resolve_turn(
                     )
                 )
 
-        slot_id: int = cmd.args["slot"]
-        bearing: float = cmd.args["bearing"]
-        weapon = next(w for w in ship.weapons if w.slot_id == slot_id)
-
         state.fired_this_turn.add(ship_id)
+        shots = cmd.args.get("shots")
+        shot_args = shots if isinstance(shots, list) else [cmd.args]
+        for shot in shot_args:
+            slot_id: int = shot["slot"]
+            # Orders carry prow-relative bearings; physics runs on absolute ones.
+            relative: float = shot["bearing"]
+            bearing = absolute_bearing(ship.heading, relative)
+            weapon = next(w for w in ship.weapons if w.slot_id == slot_id)
 
-        if weapon.weapon.speed <= 0:
-            # Lance — instant-hit ray-cast
-            result = resolve_lance_ray(
-                ship,
-                weapon,
-                bearing,
-                state.enemy_ships_of(ship),
-                dice_roller=state.dice,
-                state=state,
-            )
-            emit(
-                LanceFireEvent(
-                    ship=ship,
-                    weapon_name=weapon.weapon.name,
-                    bearing=bearing,
-                    result=result,
+            if weapon.weapon.speed <= 0:
+                # Lance — instant-hit ray-cast
+                result = resolve_lance_ray(
+                    ship,
+                    weapon,
+                    bearing,
+                    state.enemy_ships_of(ship),
+                    dice_roller=state.dice,
+                    state=state,
                 )
-            )
-            if result is not None and result.target_destroyed:
-                assert result.target_ship_id is not None
-                _credit_destroyed_ship(
-                    state, result.target_ship_id, killer_ship_id=ship_id, emit=emit
+                emit(
+                    LanceFireEvent(
+                        ship=ship,
+                        weapon_name=weapon.weapon.name,
+                        bearing=relative,
+                        result=result,
+                    )
                 )
-        else:
-            # Battery — create projectile salvo
-            proj = Projectile(
-                id=state.next_projectile_id(),
-                position=ship.position,
-                bearing=bearing,
-                speed=weapon.weapon.speed,
-                weapon_mount=weapon,
-                attacker_id=ship.id,
-                attacker_name=ship.name,
-                attacker_faction=ship.faction,
-                origin=ship.position,
-                max_range=weapon.weapon.range,
-            )
-            state.projectiles.append(proj)
-            emit(
-                SalvoLaunchEvent(
-                    ship=ship,
-                    weapon_name=weapon.weapon.name,
+                if result is not None and result.target_destroyed:
+                    assert result.target_ship_id is not None
+                    _credit_destroyed_ship(
+                        state, result.target_ship_id, killer_ship_id=ship_id, emit=emit
+                    )
+            else:
+                # Battery — create projectile salvo, scattered by gunnery spread
+                lock = lock_level(state, ship, shot.get("target"), revealed_by_fire)
+                spread = bearing_spread(ship, weapon, state, lock)
+                bearing = (bearing + state.dice.gauss(0.0, spread)) % 360.0
+                proj = Projectile(
+                    id=state.next_projectile_id(),
+                    position=ship.position,
                     bearing=bearing,
                     speed=weapon.weapon.speed,
+                    weapon_mount=weapon,
+                    attacker_id=ship.id,
+                    attacker_name=ship.name,
+                    attacker_faction=ship.faction,
+                    origin=ship.position,
                     max_range=weapon.weapon.range,
                 )
-            )
+                state.projectiles.append(proj)
+                emit(
+                    SalvoLaunchEvent(
+                        ship=ship,
+                        weapon_name=weapon.weapon.name,
+                        bearing=relative_bearing_360(ship.heading, bearing),
+                        speed=weapon.weapon.speed,
+                        max_range=weapon.weapon.range,
+                    )
+                )
 
     # ── 1b. LIGHTNING STRIKE SUB-PHASE ─────────────────────────
     strike_cmds = sorted(

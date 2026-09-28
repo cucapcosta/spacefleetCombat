@@ -493,6 +493,14 @@ def battery_firepower_bonus(
     return int(passives.dispatch(PassiveHook.BATTERY_FIREPOWER_BONUS, ctx))
 
 
+def fleet_sensor_range(state: CoreGameState, ship: Ship, base: float) -> float:
+    passives = getattr(state, "passives", None)
+    if passives is None:
+        return base
+    ctx = PassiveContext(ship=ship, fleet=state.fleet_of(ship), state=state, value=base)
+    return float(passives.dispatch(PassiveHook.FLEET_SENSOR_RANGE, ctx))
+
+
 def lance_hit_threshold(state: CoreGameState, attacker: Ship, base: int = 4) -> int:
     passives = getattr(state, "passives", None)
     if passives is None:

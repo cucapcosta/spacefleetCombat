@@ -43,6 +43,9 @@ class DiceRoller:
     def uniform(self, low: float, high: float) -> float:
         return self._rng.uniform(low, high)
 
+    def gauss(self, mu: float, sigma: float) -> float:
+        return self._rng.gauss(mu, sigma)
+
 
 # Global dice roller – importable everywhere.
 dice = DiceRoller()

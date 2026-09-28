@@ -47,6 +47,7 @@ def _parse_weapon(weapon_id: str, raw: dict[str, Any]) -> WeaponProfile | None:
             critical_chance_bonus=float(special.get("critical_chance_bonus", 0.0)),
             damage_per_hit=int(special.get("damage_per_hit", 1)),
             ignores_armor=bool(special.get("ignores_armor", False)),
+            fire_control=float(special.get("fire_control", 0.0)),
         )
     except (KeyError, ValueError) as exc:
         logger.warning("Failed to parse weapon '%s': %s", weapon_id, exc)

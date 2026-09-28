@@ -5,6 +5,7 @@ from __future__ import annotations
 from spacefleet.cli.colors import C, bold, colored, dim
 from spacefleet.cli.display import format_kit_option
 from spacefleet.cli.game_cmd import DemoBattle
+from spacefleet.cli.terminal_ui import MenuOption, TerminalClosed, TerminalUI
 from spacefleet.core.types import Vector2D
 from spacefleet.data.demo_data import (
     DAUNTLESS_HULL,
@@ -191,33 +192,39 @@ def _connect_to_server() -> None:
 # ─────────────────────────────────────────────────────────────────
 
 
-def main() -> None:
-    """Application entry point — main menu loop."""
-    while True:
-        print(BANNER)
-        print(MENU)
+def main(*, ui: TerminalUI | None = None) -> None:
+    """Application entry point with one shared terminal UI instance."""
+    ui = ui or TerminalUI()
+    try:
+        with ui.session():
+            while True:
+                choice = ui.choose(
+                    "SPACEFLEET COMBAT",
+                    [
+                        MenuOption("demo", "Start Demo"),
+                        MenuOption("connect", "Connect to Server"),
+                        MenuOption("fleet", "Fleet Builder"),
+                        MenuOption("campaign", "Campaign"),
+                        MenuOption("quit", "Quit"),
+                    ],
+                    context=BANNER,
+                )
+                if choice is None or choice == "quit":
+                    break
+                if choice == "demo":
+                    with ui.suspended():
+                        _start_demo()
+                elif choice == "connect":
+                    with ui.suspended():
+                        _connect_to_server()
+                elif choice == "fleet":
+                    from spacefleet.cli.fleet_builder_cmd import run_fleet_builder
 
-        try:
-            choice = input("  > ").strip()
-        except (EOFError, KeyboardInterrupt):
-            print()
-            break
+                    run_fleet_builder(ui=ui)
+                elif choice == "campaign":
+                    from spacefleet.cli.campaign_cmd import run_campaign_menu
 
-        if choice == "1":
-            _start_demo()
-        elif choice == "2":
-            _connect_to_server()
-        elif choice == "3":
-            from spacefleet.cli.fleet_builder_cmd import run_fleet_builder
-
-            run_fleet_builder()
-        elif choice == "4":
-            from spacefleet.cli.campaign_cmd import run_campaign_menu
-
-            run_campaign_menu()
-        elif choice in ("5", "quit", "q"):
-            break
-        else:
-            print(f"  {dim('Please enter 1, 2, 3, 4, or 5.')}")
-
-    print(f"\n  {dim('Ave Imperator. The Emperor protects.')}\n")
+                    run_campaign_menu(ui=ui)
+    except TerminalClosed:
+        pass
+    ui.show(f"\n  {dim('Ave Imperator. The Emperor protects.')}\n")

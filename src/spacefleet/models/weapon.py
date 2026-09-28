@@ -27,6 +27,8 @@ class WeaponProfile:
     critical_chance_bonus: float = 0.0
     damage_per_hit: int = 1
     ignores_armor: bool = False
+    # Fraction (0–1) shaved off projectile bearing spread.
+    fire_control: float = 0.0
 
 
 @dataclass

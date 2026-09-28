@@ -7,10 +7,11 @@ against the authoritative game state — **never trust the client**.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
-from spacefleet.spatial.geometry import is_in_arc
+from spacefleet.spatial.geometry import absolute_bearing, arc_range_str, is_in_arc
 
 if TYPE_CHECKING:
     from spacefleet.core.types import Vector2D
@@ -49,7 +50,10 @@ def validate_command(
     """
     ship_id = msg.get("ship_id", "")
     action = msg.get("action", "")
-    args: dict[str, Any] = msg.get("args", {})
+    args_raw = msg.get("args", {})
+    if not isinstance(args_raw, dict):
+        return "Command args must be an object."
+    args: dict[str, Any] = args_raw
 
     # Ownership check
     if owner_lookup.get(ship_id) != player_id:
@@ -62,6 +66,10 @@ def validate_command(
     # ── Validate by action type ──
 
     if action == "fire":
+        if "shots" in args:
+            if "slot" in args or "bearing" in args:
+                return "fire cannot combine 'shots' with 'slot' or 'bearing'."
+            return _validate_fire_shots(ship_id, args["shots"], ship)
         return _validate_fire(ship_id, args, ship)
     if action == "ahead":
         return _validate_ahead(ship_id, args, ship)
@@ -91,31 +99,78 @@ def _validate_fire(
     if slot_raw is None or bearing_raw is None:
         return "fire requires 'slot' (int) and 'bearing' (float)."
 
+    if isinstance(slot_raw, bool) or not isinstance(slot_raw, (int, str)):
+        return f"Invalid weapon slot: {slot_raw}"
     try:
         slot_id = int(slot_raw)
-    except (ValueError, TypeError):
+    except ValueError:
         return f"Invalid weapon slot: {slot_raw}"
 
     try:
-        bearing = float(bearing_raw) % 360.0
+        bearing = float(bearing_raw)
+    except OverflowError:
+        return "Invalid bearing: value is too large."
     except (ValueError, TypeError):
         return f"Invalid bearing: {bearing_raw}"
+    if not math.isfinite(bearing):
+        return f"Invalid bearing: {bearing_raw}"
+    bearing %= 360.0
 
     weapon = next((w for w in ship.weapons if w.slot_id == slot_id), None)
     if weapon is None:
         return f"No weapon in slot {slot_id}."
 
     if not weapon.can_fire:
-        return f"{weapon.weapon.name} is on cooldown."
+        if weapon.cooldown > 0:
+            return f"{weapon.weapon.name} is on cooldown."
+        return f"{weapon.weapon.name} is unavailable."
 
-    if not is_in_arc(ship.heading, bearing, weapon.arc):
-        return f"Bearing {bearing:.0f}\u00b0 is outside {weapon.arc.value} arc."
+    # Fire bearings are prow-relative (0° ahead, clockwise); the resolver
+    # converts them with the heading the ship holds during the fire phase.
+    if not is_in_arc(ship.heading, absolute_bearing(ship.heading, bearing), weapon.arc):
+        return (
+            f"Bearing {bearing:.0f}\u00b0 rel is outside {weapon.arc.value} arc "
+            f"({arc_range_str(weapon.arc)})."
+        )
 
-    return Command(
-        ship_id=ship_id,
-        action="fire",
-        args={"slot": slot_id, "bearing": bearing},
-    )
+    fire_args: dict[str, Any] = {"slot": slot_id, "bearing": bearing}
+    # Optional fire-control lock: the resolver re-checks detection itself.
+    target_raw = args.get("target")
+    if target_raw is not None:
+        if not isinstance(target_raw, str) or not target_raw:
+            return f"Invalid fire target: {target_raw}"
+        fire_args["target"] = target_raw
+
+    return Command(ship_id=ship_id, action="fire", args=fire_args)
+
+
+def _validate_fire_shots(
+    ship_id: str,
+    shots_raw: object,
+    ship: Ship,
+) -> Command | str:
+    if not isinstance(shots_raw, list):
+        return "fire 'shots' must be a list."
+    if not shots_raw:
+        return "fire 'shots' must not be empty."
+    if len(shots_raw) > len(ship.weapons):
+        return "fire cannot include more shots than mounted weapons."
+
+    shots: list[dict[str, Any]] = []
+    used_slots: set[int] = set()
+    for index, shot_raw in enumerate(shots_raw, start=1):
+        if not isinstance(shot_raw, dict):
+            return f"Invalid fire shot {index}: expected an object."
+        validated = _validate_fire(ship_id, shot_raw, ship)
+        if isinstance(validated, str):
+            return f"Invalid fire shot {index}: {validated}"
+        slot_id: int = validated.args["slot"]
+        if slot_id in used_slots:
+            return f"Invalid fire shot {index}: weapon slot {slot_id} is duplicated."
+        used_slots.add(slot_id)
+        shots.append(validated.args)
+
+    return Command(ship_id=ship_id, action="fire", args={"shots": shots})
 
 
 def _validate_ahead(

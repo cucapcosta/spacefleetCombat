@@ -13,7 +13,8 @@ from spacefleet.core.types import Vector2D
 from spacefleet.dice import DiceRoller
 from spacefleet.models.fleet_spec import ship_points
 from spacefleet.persistence.campaign_save import load_campaign, save_campaign
-from tests.campaign_helpers import ScriptedIO, campaign_state, supported_fleet
+from tests.campaign_helpers import campaign_state, supported_fleet
+from tests.terminal_ui_helpers import FakeTerminalUI
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -24,7 +25,7 @@ class _AlwaysHitDice(DiceRoller):
         return [6] * count
 
 
-def _prepare_one_shot_battle(session: BattleSession) -> tuple[str, ScriptedIO]:
+def _prepare_one_shot_battle(session: BattleSession) -> tuple[str, FakeTerminalUI]:
     """Keep one harmless enemy in the authoritative runtime memberships."""
     state = session.state
     target_id = session.enemy_runtime_ids[0]
@@ -51,24 +52,26 @@ def _prepare_one_shot_battle(session: BattleSession) -> tuple[str, ScriptedIO]:
     target.weapons.clear()
     state.dice = _AlwaysHitDice(seed=1)
 
-    lines = [
-        "fire 3 0" if ship_id == flagship.id else "pass"
-        for ship_id in state.player_ships[session.player_id]
-    ]
-    lines.extend(["ability skip", "review", "confirm"])
-    return flagship.id, ScriptedIO(lines)
+    choices: list[str] = []
+    for ship_id in state.player_ships[session.player_id]:
+        choices.extend(
+            ["attack", "fire", "contact:0", "slot:3", "done", "done"]
+            if ship_id == flagship.id
+            else ["wait"]
+        )
+    choices.extend(["ability:none", "confirm"])
+    return flagship.id, FakeTerminalUI(choices=choices)
 
 
 def _win_real_controller_battle(session: BattleSession) -> BattleOutcome:
     _, io = _prepare_one_shot_battle(session)
     outcome = LocalBattleController(
         session,
-        input_fn=io.input,
-        output_fn=io.output,
+        ui=io,
     ).run()
     assert session.state.turn == 1
     assert outcome is BattleOutcome.VICTORY
-    assert any("TARGET DESTROYED" in output for output in io.outputs)
+    assert any("TARGET DESTROYED" in output for output in io.show_calls)
     return outcome
 
 
@@ -82,8 +85,7 @@ def test_two_real_controller_battles_link_economy_and_save_load(tmp_path: Path) 
     first.state.ships[first_flagship_id].take_hull_damage(1)
     first_outcome = LocalBattleController(
         first,
-        input_fn=first_io.input,
-        output_fn=first_io.output,
+        ui=first_io,
     ).run()
     assert first_outcome is BattleOutcome.VICTORY
     first_report = close_battle(campaign, first, first_outcome)

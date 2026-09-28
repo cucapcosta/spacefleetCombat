@@ -42,7 +42,8 @@ def move_projectiles(
     """Advance all alive projectiles by ``speed × fraction`` GU.
 
     Returns a list of ``(projectile, old_pos, new_pos)`` for collision
-    checking.  Expired projectiles are marked ``alive = False``.
+    checking. Projectiles reaching max range stay alive through collision
+    checking and expire during cleanup.
     """
     movements: list[tuple[Projectile, Vector2D, Vector2D]] = []
     for proj in projectiles:
@@ -83,6 +84,10 @@ def check_projectile_collisions(
             # Skip friendly ships
             if ship.faction == proj.attacker_faction:
                 continue
+            # A hit-radius overlap beyond the projectile's endpoint must not
+            # extend the weapon's authoritative maximum range.
+            if distance(proj.origin, ship.position) > proj.max_range:
+                continue
 
             seg_dist, _closest = point_to_segment_distance(
                 ship.position,
@@ -114,6 +119,9 @@ def cleanup_projectiles(projectiles: list[Projectile]) -> list[Projectile]:
     Returns a list of expired projectiles (for display), and mutates
     the input list in-place to keep only alive ones.
     """
+    for projectile in projectiles:
+        if projectile.alive and projectile.distance_traveled >= projectile.max_range:
+            projectile.alive = False
     expired = [p for p in projectiles if not p.alive]
     projectiles[:] = [p for p in projectiles if p.alive]
     return expired
