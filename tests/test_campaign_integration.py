@@ -70,14 +70,15 @@ def _run_battle_app(session: BattleSession, flagship_id: str) -> tuple[BattleOut
     async def go() -> None:
         async with app.run_test(size=(140, 45)) as pilot:
             await pilot.pause()
-            app.draft.commands[flagship_id] = salvo
+            app.battle.draft.commands[flagship_id] = salvo
             await pilot.press("enter", "enter", "space")
             await pilot.pause()
 
     asyncio.run(go())
     assert app.return_value is not None
-    assert app.timeline is not None
-    return app.return_value, list(app.timeline.sample(app.timeline.duration).log_lines)
+    timeline = app.battle.timeline
+    assert timeline is not None
+    return app.return_value, list(timeline.sample(timeline.duration).log_lines)
 
 
 def _win_real_controller_battle(session: BattleSession) -> BattleOutcome:

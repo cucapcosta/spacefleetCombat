@@ -1,4 +1,4 @@
-"""BattleApp state machine driven headless through Textual's Pilot."""
+"""BattleApp / BattleScreen state machine driven headless through Textual's Pilot."""
 
 from __future__ import annotations
 
@@ -21,6 +21,7 @@ from spacefleet.tui.battle_app import (
     PLANNING,
     PLAYBACK,
     BattleApp,
+    BattleScreen,
     ConfirmTurnScreen,
     HelpScreen,
     QuitScreen,
@@ -28,6 +29,7 @@ from spacefleet.tui.battle_app import (
     format_pending,
 )
 from spacefleet.tui.model.orders import OrderDraft, alive_player_ids, predict_move
+from spacefleet.tui.screens import battle as battle_screen
 from spacefleet.tui.widgets.log_screen import LogScreen
 from spacefleet.tui.widgets.turn_report_screen import TurnReportScreen
 from tests.campaign_helpers import campaign_state
@@ -50,7 +52,7 @@ class RecordingAI(AIController):
         return {ship_id: Command(ship_id=ship_id, action="pass") for ship_id in ids}
 
 
-Scenario = Callable[[BattleApp, "Pilot[BattleOutcome]"], Awaitable[None]]
+Scenario = Callable[[BattleScreen, "Pilot[BattleOutcome]"], Awaitable[None]]
 
 
 def _run(
@@ -65,7 +67,7 @@ def _run(
     async def go() -> None:
         async with app.run_test(size=size) as pilot:
             await pilot.pause()
-            await scenario(app, pilot)
+            await scenario(app.battle, pilot)
             await pilot.pause()
 
     asyncio.run(go())
@@ -91,7 +93,7 @@ def test_orders_confirm_skip_advances_turn_and_returns_to_planning() -> None:
     session = build_battle(campaign_state())
     ai = RecordingAI()
 
-    async def scenario(app: BattleApp, pilot: Pilot[BattleOutcome]) -> None:
+    async def scenario(app: BattleScreen, pilot: Pilot[BattleOutcome]) -> None:
         assert app.phase == PLANNING
         first = alive_player_ids(session)[0]
         assert app.selected == first
@@ -116,10 +118,10 @@ def test_orders_confirm_skip_advances_turn_and_returns_to_planning() -> None:
 
 
 def test_revise_keeps_planning_without_resolving(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(battle_app, "resolve_turn", lambda *_a, **_k: pytest.fail("resolved"))
+    monkeypatch.setattr(battle_screen, "resolve_turn", lambda *_a, **_k: pytest.fail("resolved"))
     session = build_battle(campaign_state())
 
-    async def scenario(app: BattleApp, pilot: Pilot[BattleOutcome]) -> None:
+    async def scenario(app: BattleScreen, pilot: Pilot[BattleOutcome]) -> None:
         await pilot.press("enter", "escape")
         await pilot.pause()
         assert app.phase == PLANNING
@@ -132,7 +134,7 @@ def test_revise_keeps_planning_without_resolving(monkeypatch: pytest.MonkeyPatch
 def test_playback_end_frame_matches_end_snapshot() -> None:
     session = build_battle(campaign_state())
 
-    async def scenario(app: BattleApp, pilot: Pilot[BattleOutcome]) -> None:
+    async def scenario(app: BattleScreen, pilot: Pilot[BattleOutcome]) -> None:
         await _confirm_turn(pilot)
         timeline = app.timeline
         assert timeline is not None
@@ -152,7 +154,7 @@ def test_playback_end_frame_matches_end_snapshot() -> None:
         assert app.playhead < timeline.duration
         await pilot.press("space")
         await pilot.pause()
-        assert not isinstance(app.screen, TurnReportScreen)  # no report after a replay
+        assert not isinstance(pilot.app.screen, TurnReportScreen)  # no report after a replay
         assert app.phase == PLANNING
         assert session.state.turn == 1
         await pilot.press("q", "y")
@@ -163,7 +165,7 @@ def test_playback_end_frame_matches_end_snapshot() -> None:
 def test_playback_runs_to_the_end_by_itself_and_speed_keys_change_speed() -> None:
     session = build_battle(campaign_state())
 
-    async def scenario(app: BattleApp, pilot: Pilot[BattleOutcome]) -> None:
+    async def scenario(app: BattleScreen, pilot: Pilot[BattleOutcome]) -> None:
         await _confirm_turn(pilot)
         assert app.phase == PLAYBACK
         await pilot.press("plus")
@@ -175,7 +177,7 @@ def test_playback_runs_to_the_end_by_itself_and_speed_keys_change_speed() -> Non
         await pilot.press("plus", "plus")
         assert app.timeline is not None
         for _ in range(100):
-            if isinstance(app.screen, TurnReportScreen):
+            if isinstance(pilot.app.screen, TurnReportScreen):
                 break
             await pilot.pause(0.05)
         await _close_report(pilot, "space")
@@ -201,9 +203,9 @@ def test_victory_after_resolution_returns_victory(monkeypatch: pytest.MonkeyPatc
         _kill(session, session.enemy_runtime_ids)
         return TurnLog(turn=state.turn)
 
-    monkeypatch.setattr(battle_app, "resolve_turn", win)
+    monkeypatch.setattr(battle_screen, "resolve_turn", win)
 
-    async def scenario(app: BattleApp, pilot: Pilot[BattleOutcome]) -> None:
+    async def scenario(app: BattleScreen, pilot: Pilot[BattleOutcome]) -> None:
         await _confirm_turn(pilot)
         await pilot.press("space")
 
@@ -215,7 +217,7 @@ def test_already_won_battle_exits_immediately() -> None:
     session = build_battle(campaign_state())
     _kill(session, session.enemy_runtime_ids)
 
-    async def scenario(app: BattleApp, pilot: Pilot[BattleOutcome]) -> None:
+    async def scenario(app: BattleScreen, pilot: Pilot[BattleOutcome]) -> None:
         return
 
     _app, outcome = _run(session, scenario)
@@ -231,9 +233,9 @@ def test_simultaneous_elimination_is_a_defeat(monkeypatch: pytest.MonkeyPatch) -
         _kill(session, state.player_ships["player"] + session.enemy_runtime_ids)
         return TurnLog(turn=state.turn)
 
-    monkeypatch.setattr(battle_app, "resolve_turn", eliminate_both)
+    monkeypatch.setattr(battle_screen, "resolve_turn", eliminate_both)
 
-    async def scenario(app: BattleApp, pilot: Pilot[BattleOutcome]) -> None:
+    async def scenario(app: BattleScreen, pilot: Pilot[BattleOutcome]) -> None:
         await _confirm_turn(pilot)
         await pilot.press("space")
 
@@ -257,10 +259,10 @@ def test_turn_limit_ends_battle_and_ai_gets_only_enemy_ids(
         seen.append((commands, ability_orders))
         return TurnLog(turn=state.turn)
 
-    monkeypatch.setattr(battle_app, "resolve_turn", resolve_once)
+    monkeypatch.setattr(battle_screen, "resolve_turn", resolve_once)
     player_ids = alive_player_ids(session)
 
-    async def scenario(app: BattleApp, pilot: Pilot[BattleOutcome]) -> None:
+    async def scenario(app: BattleScreen, pilot: Pilot[BattleOutcome]) -> None:
         app.draft.stances[player_ids[0]] = Stance.LOCK_ON
         await _confirm_turn(pilot)
         await pilot.press("space")
@@ -277,11 +279,11 @@ def test_turn_limit_ends_battle_and_ai_gets_only_enemy_ids(
 def test_invalid_stance_at_resolution_returns_to_planning(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(battle_app, "resolve_turn", lambda *_a, **_k: pytest.fail("resolved"))
+    monkeypatch.setattr(battle_screen, "resolve_turn", lambda *_a, **_k: pytest.fail("resolved"))
     session = build_battle(campaign_state())
     ship_id = alive_player_ids(session)[0]
 
-    async def scenario(app: BattleApp, pilot: Pilot[BattleOutcome]) -> None:
+    async def scenario(app: BattleScreen, pilot: Pilot[BattleOutcome]) -> None:
         app.draft.stances[ship_id] = Stance.LOCK_ON
         session.state.ships[ship_id].morale = 0  # mutiny: stance no longer allowed
         await _confirm_turn(pilot)
@@ -299,20 +301,20 @@ def test_invalid_stance_at_resolution_returns_to_planning(
 def test_quit_asks_then_abandons_or_surrenders(
     monkeypatch: pytest.MonkeyPatch, key: str, outcome: BattleOutcome
 ) -> None:
-    monkeypatch.setattr(battle_app, "resolve_turn", lambda *_a, **_k: pytest.fail("resolved"))
+    monkeypatch.setattr(battle_screen, "resolve_turn", lambda *_a, **_k: pytest.fail("resolved"))
     session = build_battle(campaign_state())
 
-    async def scenario(app: BattleApp, pilot: Pilot[BattleOutcome]) -> None:
+    async def scenario(app: BattleScreen, pilot: Pilot[BattleOutcome]) -> None:
         await pilot.press("q")
         await pilot.pause()
-        assert isinstance(app.screen, QuitScreen)
+        assert isinstance(pilot.app.screen, QuitScreen)
         await pilot.press("escape")
         await pilot.pause()
-        assert not isinstance(app.screen, QuitScreen)
-        assert app.return_value is None
+        assert not isinstance(pilot.app.screen, QuitScreen)
+        assert pilot.app.return_value is None
         await pilot.press("ctrl+c")
         await pilot.pause()
-        assert isinstance(app.screen, QuitScreen)
+        assert isinstance(pilot.app.screen, QuitScreen)
         await pilot.press(key)
 
     _app, result = _run(session, scenario)
@@ -324,7 +326,7 @@ def test_tab_cycles_own_alive_ships() -> None:
     session = build_battle(campaign_state())
     ids = alive_player_ids(session)
 
-    async def scenario(app: BattleApp, pilot: Pilot[BattleOutcome]) -> None:
+    async def scenario(app: BattleScreen, pilot: Pilot[BattleOutcome]) -> None:
         assert app.selected == ids[0]
         await pilot.press("tab")
         assert app.selected == ids[1]
@@ -340,7 +342,7 @@ def test_tab_cycles_own_alive_ships() -> None:
 def test_map_keys_work_regardless_of_focus() -> None:
     session = build_battle(campaign_state())
 
-    async def scenario(app: BattleApp, pilot: Pilot[BattleOutcome]) -> None:
+    async def scenario(app: BattleScreen, pilot: Pilot[BattleOutcome]) -> None:
         tmap = app.tactical_map
         app.order_panel.focus()
         await pilot.pause()
@@ -365,7 +367,7 @@ def test_map_keys_work_regardless_of_focus() -> None:
 def test_small_terminal_shows_warning_until_resized() -> None:
     session = build_battle(campaign_state())
 
-    async def scenario(app: BattleApp, pilot: Pilot[BattleOutcome]) -> None:
+    async def scenario(app: BattleScreen, pilot: Pilot[BattleOutcome]) -> None:
         assert app.too_small
         assert app.query_one("#too-small").display
         assert not app.query_one("#body").display
@@ -381,7 +383,7 @@ def test_small_terminal_shows_warning_until_resized() -> None:
 def test_narrow_terminal_side_panel_is_a_toggleable_overlay() -> None:
     session = build_battle(campaign_state())
 
-    async def scenario(app: BattleApp, pilot: Pilot[BattleOutcome]) -> None:
+    async def scenario(app: BattleScreen, pilot: Pilot[BattleOutcome]) -> None:
         side = app.query_one("#side")
         assert side.has_class("-narrow")
         assert not side.display
@@ -470,7 +472,7 @@ def test_turn_limit_must_be_positive() -> None:
 def test_maneuver_preview_reaches_map_and_action_marks_status() -> None:
     session = build_battle(campaign_state())
 
-    async def scenario(app: BattleApp, pilot: Pilot[BattleOutcome]) -> None:
+    async def scenario(app: BattleScreen, pilot: Pilot[BattleOutcome]) -> None:
         tmap = app.tactical_map
         tmap.focus()
         await pilot.press("up")  # the map owns the arrows while focused
@@ -507,7 +509,7 @@ def test_confirmed_turn_resolves_maneuver_with_the_action() -> None:
     start_heading = ship.heading
     expected = predict_move(ship, Maneuver(turn=15.0), state=session.state)
 
-    async def scenario(app: BattleApp, pilot: Pilot[BattleOutcome]) -> None:
+    async def scenario(app: BattleScreen, pilot: Pilot[BattleOutcome]) -> None:
         await pilot.press("right", "p")
         await pilot.pause()
         await _confirm_turn(pilot)
@@ -551,7 +553,7 @@ def test_clicking_own_ship_on_map_selects_it() -> None:
     session = build_battle(campaign_state())
     ids = alive_player_ids(session)
 
-    async def scenario(app: BattleApp, pilot: Pilot[BattleOutcome]) -> None:
+    async def scenario(app: BattleScreen, pilot: Pilot[BattleOutcome]) -> None:
         tmap = app.tactical_map
         view = tmap.ship(ids[1])
         assert view is not None
@@ -567,7 +569,7 @@ def test_clicking_own_ship_on_map_selects_it() -> None:
 def test_tab_keeps_the_fitted_camera_when_the_ship_is_visible() -> None:
     session = build_battle(campaign_state())
 
-    async def scenario(app: BattleApp, pilot: Pilot[BattleOutcome]) -> None:
+    async def scenario(app: BattleScreen, pilot: Pilot[BattleOutcome]) -> None:
         cam = app.tactical_map.camera
         before = (cam.center, cam.gu_per_dot)
         await pilot.press("tab")
@@ -581,16 +583,18 @@ def test_tab_keeps_the_fitted_camera_when_the_ship_is_visible() -> None:
 def test_help_screen_opens_and_closes_without_side_effects(close_key: str) -> None:
     session = build_battle(campaign_state())
 
-    async def scenario(app: BattleApp, pilot: Pilot[BattleOutcome]) -> None:
+    async def scenario(app: BattleScreen, pilot: Pilot[BattleOutcome]) -> None:
         await pilot.press("question_mark")
         await pilot.pause()
-        assert isinstance(app.screen, HelpScreen)
-        assert "Replay the last resolved turn" in str(app.screen.query_one("#keys", Static).content)
+        assert isinstance(pilot.app.screen, HelpScreen)
+        assert "Replay the last resolved turn" in str(
+            pilot.app.screen.query_one("#keys", Static).content
+        )
         await pilot.press(close_key)
         await pilot.pause()
-        assert not isinstance(app.screen, HelpScreen | QuitScreen)
+        assert not isinstance(pilot.app.screen, HelpScreen | QuitScreen)
         assert app.phase == PLANNING
-        assert app.return_value is None
+        assert pilot.app.return_value is None
         await pilot.press("q", "y")
 
     _run(session, scenario)
@@ -599,7 +603,7 @@ def test_help_screen_opens_and_closes_without_side_effects(close_key: str) -> No
 def test_help_key_is_visible_in_the_footer_at_120_columns() -> None:
     session = build_battle(campaign_state())
 
-    async def scenario(app: BattleApp, pilot: Pilot[BattleOutcome]) -> None:
+    async def scenario(app: BattleScreen, pilot: Pilot[BattleOutcome]) -> None:
         keys = {k.action: k for k in app.query(FooterKey)}
         assert "help" in keys
         assert keys["help"].region.right <= 120
@@ -612,14 +616,14 @@ def test_help_key_is_visible_in_the_footer_at_120_columns() -> None:
 def test_report_opens_after_skip_and_enter_returns_to_planning() -> None:
     session = build_battle(campaign_state())
 
-    async def scenario(app: BattleApp, pilot: Pilot[BattleOutcome]) -> None:
+    async def scenario(app: BattleScreen, pilot: Pilot[BattleOutcome]) -> None:
         await _confirm_turn(pilot)
         await pilot.press("space")
         await pilot.pause()
-        assert isinstance(app.screen, TurnReportScreen)
+        assert isinstance(pilot.app.screen, TurnReportScreen)
         assert app.phase != PLANNING
         assert app.last_report is not None and app.last_report.turn == 1
-        report = str(app.screen.query_one("#report", Static).content)
+        report = str(pilot.app.screen.query_one("#report", Static).content)
         assert "Turn 1 report" in report
         assert session.state.ships[alive_player_ids(session)[0]].name in report
         await pilot.press("enter")
@@ -641,14 +645,14 @@ def test_victory_exits_without_a_report(monkeypatch: pytest.MonkeyPatch) -> None
         _kill(session, session.enemy_runtime_ids)
         return TurnLog(turn=state.turn)
 
-    monkeypatch.setattr(battle_app, "resolve_turn", win)
+    monkeypatch.setattr(battle_screen, "resolve_turn", win)
     monkeypatch.setattr(
-        battle_app,
+        battle_screen,
         "TurnReportScreen",
         lambda *_a: screens.append("report") or pytest.fail("report"),
     )
 
-    async def scenario(app: BattleApp, pilot: Pilot[BattleOutcome]) -> None:
+    async def scenario(app: BattleScreen, pilot: Pilot[BattleOutcome]) -> None:
         await _confirm_turn(pilot)
         await pilot.press("space")
 
@@ -660,31 +664,31 @@ def test_victory_exits_without_a_report(monkeypatch: pytest.MonkeyPatch) -> None
 def test_log_screen_opens_with_history_and_closes_with_l_or_escape() -> None:
     session = build_battle(campaign_state())
 
-    async def scenario(app: BattleApp, pilot: Pilot[BattleOutcome]) -> None:
+    async def scenario(app: BattleScreen, pilot: Pilot[BattleOutcome]) -> None:
         await pilot.press("L")
         await pilot.pause()
-        assert isinstance(app.screen, LogScreen)
+        assert isinstance(pilot.app.screen, LogScreen)
         await pilot.press("L")
         await pilot.pause()
-        assert not isinstance(app.screen, LogScreen)
+        assert not isinstance(pilot.app.screen, LogScreen)
         await _confirm_turn(pilot)
         await pilot.press("L")  # not during playback
         await pilot.pause()
-        assert not isinstance(app.screen, LogScreen)
+        assert not isinstance(pilot.app.screen, LogScreen)
         await pilot.press("space")
         await pilot.pause()
         await _close_report(pilot)
         assert [turn for turn, _lines in app.history] == [1]
         await pilot.press("L")
         await pilot.pause()
-        screen = app.screen
+        screen = pilot.app.screen
         assert isinstance(screen, LogScreen)
         lines = screen.visible_lines
         assert lines[0] == "Turn 1 report"
         assert "── Turn 1 ──" in lines
         await pilot.press("escape")
         await pilot.pause()
-        assert not isinstance(app.screen, LogScreen)
+        assert not isinstance(pilot.app.screen, LogScreen)
         assert app.phase == PLANNING
         # Replay still works once the report and the log are closed.
         await pilot.press("r")
@@ -701,12 +705,12 @@ def test_log_screen_opens_with_history_and_closes_with_l_or_escape() -> None:
 def test_log_key_is_in_the_footer_and_help() -> None:
     session = build_battle(campaign_state())
 
-    async def scenario(app: BattleApp, pilot: Pilot[BattleOutcome]) -> None:
+    async def scenario(app: BattleScreen, pilot: Pilot[BattleOutcome]) -> None:
         keys = {k.action: k for k in app.query(FooterKey)}
         assert "log" in keys
         await pilot.press("question_mark")
         await pilot.pause()
-        assert "Battle log" in str(app.screen.query_one("#keys", Static).content)
+        assert "Battle log" in str(pilot.app.screen.query_one("#keys", Static).content)
         await pilot.press("escape")
         await pilot.press("q", "y")
 
