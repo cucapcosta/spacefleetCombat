@@ -1,7 +1,8 @@
 """Spacefleet WebSocket client — connects to WS server, displays text, sends commands.
 
-Mirrors the TCP client (``client.py``) but communicates over WebSocket,
-allowing connection to the Railway-deployed server.
+The network logic lives in :mod:`spacefleet.net.ws_session`; this module keeps
+the protocol constants, the command parser and the ``spacefleet-ws-client``
+entry point, which opens a minimal Textual app on the online screen.
 
 Usage::
 
@@ -11,13 +12,7 @@ Usage::
 from __future__ import annotations
 
 import argparse
-import asyncio
-import json
-import ssl
 from typing import Any
-
-import aiohttp
-import certifi
 
 # Protocol constants (duplicated to keep the client self-contained for PyInstaller)
 MSG_AUTH = "auth"
@@ -36,291 +31,108 @@ MSG_TURN_RESULT = "turn_result"
 MSG_WAITING = "waiting"
 
 
-class SpacefleetWSClient:
-    """WebSocket client for Spacefleet Combat."""
-
-    def __init__(self, url: str, username: str) -> None:
-        self.url = url
-        self.username = username
-        self._running = True
-
-    async def run(self) -> None:
-        try:
-            ssl_ctx = ssl.create_default_context(cafile=certifi.where())
-            connector = aiohttp.TCPConnector(ssl=ssl_ctx)
-            async with (
-                aiohttp.ClientSession(connector=connector) as session,
-                session.ws_connect(self.url) as ws,
-            ):
-                # Authenticate
-                await ws.send_str(json.dumps({"type": MSG_AUTH, "username": self.username}))
-
-                # Wait for auth response
-                response = await self._recv(ws)
-                if response is None:
-                    print("  Connection closed by server.")
-                    return
-
-                if response.get("type") == MSG_AUTH_FAIL:
-                    print(f"  Authentication failed: {response.get('reason', 'unknown')}")
-                    return
-
-                if response.get("type") == MSG_AUTH_OK:
-                    ships = response.get("ship_names") or response.get("ships", [])
-                    msg = response.get("message", "")
-                    if msg:
-                        print(f"  {msg}")
-                    if ships:
-                        print(f"  Your ships: {', '.join(str(s) for s in ships)}")
-
-                # Main receive loop
-                await self._receive_loop(ws)
-
-        except aiohttp.ClientError as e:
-            print(f"  Cannot connect to {self.url}: {e}")
-        except (ConnectionResetError, BrokenPipeError):
-            print("\n  Connection lost.")
-
-    async def _recv(self, ws: aiohttp.ClientWebSocketResponse) -> dict[str, Any] | None:
-        """Receive and decode one JSON message from the WebSocket."""
-        msg = await ws.receive()
-        if msg.type == aiohttp.WSMsgType.TEXT:
-            try:
-                return json.loads(msg.data)  # type: ignore[no-any-return]
-            except json.JSONDecodeError:
-                return None
-        return None
-
-    async def _receive_loop(self, ws: aiohttp.ClientWebSocketResponse) -> None:
-        while self._running:
-            msg = await self._recv(ws)
-            if msg is None:
-                print("\n  Disconnected from server.")
-                return
-
-            msg_type = msg.get("type", "")
-
-            if msg_type == MSG_DISPLAY:
-                print(msg.get("text", ""))
-
-            elif msg_type == MSG_AUTH_OK:
-                ships = msg.get("ship_names") or msg.get("ships", [])
-                if ships:
-                    print(f"  Your fleet: {', '.join(str(s) for s in ships)}")
-
-            elif msg_type == MSG_PROMPT:
-                print(msg.get("text", ""))
-                await self._input_loop(ws, msg.get("ship_id", ""), msg.get("ship_name", ""))
-
-            elif msg_type == MSG_QUERY_RESULT:
-                print(msg.get("text", ""))
-
-            elif msg_type == MSG_COMMAND_ACK:
-                print(msg.get("text", "  Command accepted."))
-
-            elif msg_type == MSG_COMMAND_REJECT:
-                print(f"  \033[31mRejected:\033[0m {msg.get('reason', 'Unknown error')}")
-
-            elif msg_type == MSG_TURN_RESULT:
-                print(msg.get("text", ""))
-
-            elif msg_type == MSG_WAITING:
-                print(msg.get("text", "  Waiting for other players..."))
-
-            elif msg_type == MSG_GAME_OVER:
-                print(msg.get("text", ""))
-                self._running = False
-                return
-
-            elif msg_type == MSG_ERROR:
-                print(f"  \033[31mServer error:\033[0m {msg.get('message', '')}")
-
-    async def _input_loop(
-        self,
-        ws: aiohttp.ClientWebSocketResponse,
-        ship_id: str,
-        ship_name: str,
-    ) -> None:
-        loop = asyncio.get_event_loop()
-        prompt = f"  \033[96m{ship_name}\033[0m> "
-
-        while True:
-            try:
-                raw = await loop.run_in_executor(None, lambda: input(prompt).strip())
-            except (EOFError, KeyboardInterrupt):
-                print()
-                self._running = False
-                return
-
-            if not raw:
-                continue
-
-            parts = raw.split()
-            cmd = parts[0].lower()
-            args = parts[1:]
-
-            # Free actions → query
-            if cmd in ("status", "scan", "weapons", "help", "?", "stance"):
-                if cmd == "?":
-                    query = "help"
-                elif cmd == "stance":
-                    query = f"stance {' '.join(args)}".strip()
-                else:
-                    query = cmd
-                await ws.send_str(
-                    json.dumps({"type": MSG_QUERY, "ship_id": ship_id, "query": query})
-                )
-                return
-
-            if cmd == "quit":
-                self._running = False
-                return
-
-            # move (free, server re-prompts) or a costed action → command
-            payload = _parse_action(ship_id, cmd, args)
-            if payload is None:
-                print("  Unknown command. Type 'help' for options.")
-                continue
-
-            await ws.send_str(json.dumps(payload))
-            return
-
-
 _MOVE_USAGE = "  Usage: move <speed|-> [port|starboard <degrees>]"
+_UNKNOWN_COMMAND = "  Unknown command. Type 'help' for options."
+
+ParseResult = tuple[dict[str, Any] | None, str | None]
+"""``(payload, None)`` on success, ``(None, error message)`` otherwise."""
 
 
-def _parse_move(ship_id: str, args: list[str]) -> dict[str, Any] | None:
+def _command(ship_id: str, action: str, args: dict[str, Any]) -> ParseResult:
+    return {"type": MSG_COMMAND, "ship_id": ship_id, "action": action, "args": args}, None
+
+
+def _parse_move_checked(ship_id: str, args: list[str]) -> ParseResult:
     """``move <speed|-> [port|starboard <deg>]`` → free maneuver message.
 
     Mirrors ``spacefleet.cli.action_parser`` (kept local for PyInstaller).
     """
     if not args or len(args) not in (1, 3):
-        print(_MOVE_USAGE)
-        return None
+        return None, _MOVE_USAGE
     try:
         speed = None if args[0] == "-" else float(args[0])
         turn = 0.0
         if len(args) == 3:
             side = args[1].lower()
             if side not in ("port", "p", "left", "starboard", "stbd", "s", "right"):
-                print(_MOVE_USAGE)
-                return None
+                return None, _MOVE_USAGE
             degrees = float(args[2])
             if degrees < 0:
-                print(_MOVE_USAGE)
-                return None
+                return None, _MOVE_USAGE
             turn = -degrees if side in ("port", "p", "left") else degrees
     except ValueError:
-        print(_MOVE_USAGE)
-        return None
+        return None, _MOVE_USAGE
     return {
         "type": MSG_COMMAND,
         "ship_id": ship_id,
         "action": "move",
         "args": {},
         "maneuver": {"speed": speed, "turn": turn},
-    }
+    }, None
 
 
-def _parse_action(ship_id: str, cmd: str, args: list[str]) -> dict[str, Any] | None:
-    """Parse user input into a command message dict.
+def _parse_action_checked(ship_id: str, cmd: str, args: list[str]) -> ParseResult:
+    """Parse user input into ``(command message, error message)``.
 
     ``move`` is free (the server holds it and re-prompts); fire, strike or
     pass then ends the ship's orders.  ahead/stop/turn are maneuver + pass.
+    Exactly one of the two results is None.
     """
     if cmd == "move":
-        return _parse_move(ship_id, args)
+        return _parse_move_checked(ship_id, args)
 
     if cmd == "fire":
         if len(args) < 2:
-            print("  Usage: fire <weapon#> <bearing> (relative to prow: 0 ahead, 90 starboard)")
-            return None
+            return None, (
+                "  Usage: fire <weapon#> <bearing> (relative to prow: 0 ahead, 90 starboard)"
+            )
         try:
-            return {
-                "type": MSG_COMMAND,
-                "ship_id": ship_id,
-                "action": "fire",
-                "args": {"slot": int(args[0]), "bearing": float(args[1])},
-            }
+            return _command(ship_id, "fire", {"slot": int(args[0]), "bearing": float(args[1])})
         except ValueError:
-            print("  Invalid fire arguments. Use: fire <number> <bearing>")
-            return None
+            return None, "  Invalid fire arguments. Use: fire <number> <bearing>"
 
     if cmd == "ahead":
         try:
             speed = float(args[0]) if args else None
         except ValueError:
-            print("  Usage: ahead [speed]")
-            return None
-        return {
-            "type": MSG_COMMAND,
-            "ship_id": ship_id,
-            "action": "ahead",
-            "args": {"speed": speed},
-        }
+            return None, "  Usage: ahead [speed]"
+        return _command(ship_id, "ahead", {"speed": speed})
 
     if cmd == "stop":
-        return {"type": MSG_COMMAND, "ship_id": ship_id, "action": "stop", "args": {}}
+        return _command(ship_id, "stop", {})
 
     if cmd == "turn":
         if len(args) < 2:
-            print("  Usage: turn <port|starboard> <degrees>")
-            return None
+            return None, "  Usage: turn <port|starboard> <degrees>"
         try:
-            return {
-                "type": MSG_COMMAND,
-                "ship_id": ship_id,
-                "action": "turn",
-                "args": {"direction": args[0], "degrees": float(args[1])},
-            }
+            return _command(ship_id, "turn", {"direction": args[0], "degrees": float(args[1])})
         except ValueError:
-            print("  Invalid turn degrees.")
-            return None
+            return None, "  Invalid turn degrees."
 
     if cmd == "pass":
-        return {"type": MSG_COMMAND, "ship_id": ship_id, "action": "pass", "args": {}}
+        return _command(ship_id, "pass", {})
 
     if cmd == "strike":
         if len(args) < 2:
-            print("  Usage: strike <target_id> <subsystem>")
-            return None
-        return {
-            "type": MSG_COMMAND,
-            "ship_id": ship_id,
-            "action": "strike",
-            "args": {"target": args[0], "subsystem": args[1]},
-        }
+            return None, "  Usage: strike <target_id> <subsystem>"
+        return _command(ship_id, "strike", {"target": args[0], "subsystem": args[1]})
 
-    return None
+    return None, _UNKNOWN_COMMAND
+
+
+def _parse_move(ship_id: str, args: list[str]) -> dict[str, Any] | None:
+    """Payload-only variant of :func:`_parse_move_checked` (None on bad input)."""
+    return _parse_move_checked(ship_id, args)[0]
+
+
+def _parse_action(ship_id: str, cmd: str, args: list[str]) -> dict[str, Any] | None:
+    """Payload-only variant of :func:`_parse_action_checked` (None on bad input)."""
+    return _parse_action_checked(ship_id, cmd, args)[0]
 
 
 # ── CLI ───────────────────────────────────────────────────────
 
 DEFAULT_URL = "wss://game.forjadeguerra.com.br/ws"
-
-_BANNER = """
-\033[96m╔══════════════════════════════════════════════════╗\033[0m
-\033[96m║\033[0m  \033[1mS P A C E F L E E T   C O M B A T\033[0m           \033[96m║\033[0m
-\033[96m║\033[0m  \033[2mWebSocket Client\033[0m                              \033[96m║\033[0m
-\033[96m╚══════════════════════════════════════════════════╝\033[0m
-"""
-
-
-def _interactive_setup() -> tuple[str, str] | None:
-    """Prompt for URL and username when no CLI args are given."""
-    print(_BANNER)
-    try:
-        url = input(f"  Server URL [\033[2m{DEFAULT_URL}\033[0m]: ").strip()
-        url = url or DEFAULT_URL
-        username = input("  Username: ").strip()
-        if not username:
-            print("  \033[31mUsername is required.\033[0m")
-            return None
-    except (EOFError, KeyboardInterrupt):
-        print()
-        return None
-    print()
-    return url, username
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -336,31 +148,44 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 def main(argv: list[str] | None = None) -> None:
-    """Entry point for the WebSocket client."""
-    import sys
+    """Entry point for the WebSocket client: a minimal Textual app.
+
+    With both a URL and ``--user`` it opens the online screen directly;
+    otherwise it shows the connect form (pre-filled with what was given).
+    The app exits when that screen is left.
+    """
+    from textual.app import App
+    from textual.screen import Screen
+
+    from spacefleet.tui.screens.online import ConnectScreen, OnlineScreen
 
     args = parse_args(argv)
+    url = args.url or DEFAULT_URL
+    username = args.user or ""
 
-    if args.url and args.user:
-        url, username = args.url, args.user
-    elif argv is None and len(sys.argv) == 1:
-        result = _interactive_setup()
-        if result is None:
-            return
-        url, username = result
-    else:
-        if not args.user:
-            print("  Error: --user is required")
-            return
-        url = args.url or DEFAULT_URL
-        username = args.user
+    class Launcher(Screen[None]):
+        """Blank base screen; the app exits once it is on top again."""
 
-    print(f"  Connecting to \033[96m{url}\033[0m as \033[93m{username}\033[0m...\n")
-    client = SpacefleetWSClient(url=url, username=username)
-    try:
-        asyncio.run(client.run())
-    except KeyboardInterrupt:
-        print("\n  Disconnected.")
+        launched = False
+
+        def on_mount(self) -> None:
+            if args.url and args.user:
+                self.app.push_screen(OnlineScreen(url, username))
+            else:
+                self.app.push_screen(ConnectScreen(url, username))
+            self.launched = True
+
+        def on_screen_resume(self) -> None:
+            if self.launched and self.app.screen is self:
+                self.app.exit()
+
+    class OnlineClientApp(App[None]):
+        TITLE = "Spacefleet Combat"
+
+        def get_default_screen(self) -> Screen[None]:
+            return Launcher()
+
+    OnlineClientApp().run()
 
 
 if __name__ == "__main__":
