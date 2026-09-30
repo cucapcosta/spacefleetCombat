@@ -55,3 +55,6 @@ class HullProfile:
     # Misc
     assault_actions: int = 0
     base_morale: int = 100
+
+    # Side-profile block art, prow to the right (``data/ships`` ``art:``).
+    art: tuple[str, ...] = ()

@@ -71,6 +71,7 @@ def _parse_hull(raw: dict[str, Any]) -> HullProfile | None:
             weapon_slots=weapon_slots,
             assault_actions=int(boarding.get("assault_actions", 0)),
             base_morale=int(morale.get("base_max", 100)),
+            art=tuple(str(line) for line in raw.get("art") or ()),
         )
     except (KeyError, ValueError, TypeError) as exc:
         ship_id = raw.get("id", "<unknown>")
