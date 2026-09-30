@@ -4,11 +4,18 @@ import asyncio
 from typing import TYPE_CHECKING, Any
 
 from textual.app import App, ComposeResult
-from textual.widgets import OptionList
+from textual.widgets import OptionList, Static
 
 from spacefleet.campaign.battle import BattleSession, build_battle
 from spacefleet.core.types import DetectionLevel, Faction, Stance, Vector2D, heading_to_vector
-from spacefleet.tui.model.orders import Aim, OrderDraft, fire_unavailable_reason
+from spacefleet.net.commands import Maneuver
+from spacefleet.tui.model.orders import (
+    Aim,
+    OrderDraft,
+    finalize,
+    fire_unavailable_reason,
+    predict_move,
+)
 from spacefleet.tui.model.snapshot import BattleSnapshot, ShipView
 from spacefleet.tui.model.timeline import Bars
 from spacefleet.tui.widgets.event_log import EventLog
@@ -90,10 +97,103 @@ def _run(app: _Harness, script: Callable[[Pilot[None]], Awaitable[None]]) -> Non
 # ── OrderPanel ──────────────────────────────────────────────────────
 
 
-def test_move_edit_previews_route_then_sets_ahead_order_on_enter() -> None:
+def _maneuver_text(panel: OrderPanel) -> str:
+    return str(panel.query_one("#op-maneuver", Static).render())
+
+
+def test_arrows_edit_maneuver_at_top_menu_and_preview_curved_route() -> None:
+    session = _session()
+    ship = _player_ship(session)
+    ship.speed = 3.0
+    draft = OrderDraft()
+    panel = OrderPanel(session, draft)
+    app = _Harness(panel)
+
+    async def script(pilot: Pilot[None]) -> None:
+        panel.set_ship(ship.id)
+        panel.focus()
+        await pilot.pause()
+        assert panel.mode == "menu"
+        assert "Speed 3 → 3 GU/turn" in _maneuver_text(panel)
+        await pilot.press("up", "up", "right")
+        await pilot.pause()
+        assert draft.maneuvers[ship.id] == Maneuver(speed=5.0, turn=15.0)
+        assert "Speed 3 → 5 GU/turn" in _maneuver_text(panel)
+        assert "Turn 15° starboard" in _maneuver_text(panel)
+        routes = [m for m in app.of(PreviewChanged) if m.kind == "route"]
+        data = routes[-1].data
+        expected = predict_move(ship, Maneuver(speed=5.0, turn=15.0), state=session.state)
+        assert data["ship_id"] == ship.id
+        assert data["path"] == expected.path
+        assert data["pos"] == expected.end
+        assert data["heading"] == expected.end_heading
+        assert not app.of(OrderSet)
+        assert "order ·" in str(panel.query_one("#op-title", Static).render())
+
+    _run(app, script)
+
+
+def test_maneuver_and_fire_on_same_ship() -> None:
+    session = _session()
+    ship = _player_ship(session)
+    ship.speed = 3.0
+    mount = _forward_mount(session, ship)
+    draft = OrderDraft()
+    panel = OrderPanel(session, draft)
+    app = _Harness(panel)
+
+    async def script(pilot: Pilot[None]) -> None:
+        panel.set_ship(ship.id)
+        panel.focus()
+        await pilot.press("left")
+        panel.action_fire()
+        panel.choose("manual")
+        panel.set_manual_bearing(0.0)
+        panel.choose(f"slot:{mount.slot_id}")
+        panel.choose("done")
+        panel.choose("done")
+        await pilot.pause()
+        assert "order ✓" in str(panel.query_one("#op-title", Static).render())
+
+    _run(app, script)
+    assert draft.commands[ship.id].action == "fire"
+    assert draft.maneuvers[ship.id] == Maneuver(speed=None, turn=-15.0)
+    result = finalize(draft, session)
+    assert not isinstance(result, str)
+    command = result[0][ship.id]
+    assert command.action == "fire"
+    assert command.maneuver == Maneuver(speed=None, turn=-15.0)
+
+
+def test_arrows_navigate_options_inside_submenus() -> None:
+    session = _session()
+    ship = _player_ship(session)
+    draft = OrderDraft()
+    panel = OrderPanel(session, draft)
+    app = _Harness(panel)
+
+    async def script(pilot: Pilot[None]) -> None:
+        panel.set_ship(ship.id)
+        panel.focus()
+        await pilot.press("t")
+        await pilot.pause()
+        options = panel.query_one("#op-options", OptionList)
+        before = options.highlighted
+        await pilot.press("down", "left")
+        await pilot.pause()
+        assert options.highlighted != before
+
+    _run(app, script)
+    assert ship.id not in draft.maneuvers
+
+
+def test_turn_limit_shown_enforced_and_shrinks_when_ship_starts_moving() -> None:
     session = _session()
     ship = _player_ship(session)
     ship.speed = 0.0
+    pivot = ship.max_turn_this_turn(0.0)
+    moving = ship.max_turn_this_turn(1.0)
+    assert pivot > moving
     draft = OrderDraft()
     panel = OrderPanel(session, draft)
     app = _Harness(panel)
@@ -101,28 +201,25 @@ def test_move_edit_previews_route_then_sets_ahead_order_on_enter() -> None:
     async def script(pilot: Pilot[None]) -> None:
         panel.set_ship(ship.id)
         panel.focus()
-        await pilot.press("m", "up", "up")
         await pilot.pause()
-        routes = [m for m in app.of(PreviewChanged) if m.kind == "route"]
-        assert routes
-        assert routes[-1].data["ship_id"] == ship.id
-        assert routes[-1].data["pos"] != ship.position
-        assert len(routes[-1].data["path"]) >= 2
-        assert not app.of(OrderSet)
-        await pilot.press("enter")
+        assert f"(max {pivot:g}° this turn)" in _maneuver_text(panel)
+        for _ in range(int(pivot // 15) + 3):
+            await pilot.press("left")
         await pilot.pause()
-        assert [m.ship_id for m in app.of(OrderSet)] == [ship.id]
-        assert app.of(PreviewCleared)
+        assert draft.maneuvers[ship.id].turn == -pivot
+        assert f"Turn {pivot:g}° port" in _maneuver_text(panel)
+        await pilot.press("up")
+        await pilot.pause()
+        assert draft.maneuvers[ship.id] == Maneuver(speed=1.0, turn=-moving)
+        assert f"(max {moving:g}° this turn)" in _maneuver_text(panel)
 
     _run(app, script)
-    command = draft.commands[ship.id]
-    assert command.action == "ahead"
-    assert command.args["speed"] == 2.0
 
 
-def test_move_turn_keys_queue_turn_command() -> None:
+def test_editing_back_to_default_drops_the_maneuver() -> None:
     session = _session()
     ship = _player_ship(session)
+    ship.speed = 2.0
     draft = OrderDraft()
     panel = OrderPanel(session, draft)
     app = _Harness(panel)
@@ -130,16 +227,32 @@ def test_move_turn_keys_queue_turn_command() -> None:
     async def script(pilot: Pilot[None]) -> None:
         panel.set_ship(ship.id)
         panel.focus()
-        await pilot.press("m", "left", "enter")
+        await pilot.press("down", "right")
         await pilot.pause()
-        routes = [m for m in app.of(PreviewChanged) if m.kind == "route"]
-        assert routes[-1].data["heading"] != ship.heading
+        assert draft.maneuvers[ship.id] == Maneuver(speed=1.0, turn=15.0)
+        await pilot.press("up", "left")
+        await pilot.pause()
 
     _run(app, script)
-    command = draft.commands[ship.id]
-    assert command.action == "turn"
-    assert command.args["direction"] == "port"
-    assert command.args["degrees"] == 15.0
+    assert ship.id not in draft.maneuvers
+
+
+def test_action_menu_offers_fire_boarding_pass_but_no_move() -> None:
+    session = _session()
+    ship = _player_ship(session)
+    panel = OrderPanel(session, OrderDraft())
+    app = _Harness(panel)
+
+    async def script(pilot: Pilot[None]) -> None:
+        panel.set_ship(ship.id)
+        await pilot.pause()
+        labels = panel.option_labels()
+        assert not any("Move" in label for label in labels)
+        assert any("Fire" in label for label in labels)
+        assert any("Boarding" in label for label in labels)
+        assert any("Pass" in label for label in labels)
+
+    _run(app, script)
 
 
 def test_rejected_salvo_shows_reason_and_sets_no_order() -> None:

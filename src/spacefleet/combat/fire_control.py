@@ -1,12 +1,11 @@
 """Fire control — lead solutions and gunnery spread for projectile weapons.
 
-Battery and torpedo salvos travel for one or more half-turn steps before
-they can strike, so aiming at a target's current position misses anything
-that moves.  :func:`lead_solution` predicts where a target holding its
-current heading and speed will be, replaying the same discrete steps the
-turn resolver uses (ships drift, then projectiles advance, then collision
-sweep).  Turns and speed changes ordered this turn are hidden information
-and are not predicted.
+Battery and torpedo salvos fly while their target keeps moving, so aiming
+at a target's current position misses anything that moves.  Ships and
+salvos move together and continuously, so :func:`lead_solution` solves
+the exact intercept of a straight-flying salvo with a target holding its
+current heading and speed.  Turns and speed changes ordered this turn are
+hidden information and are not predicted.
 
 :func:`bearing_spread` gives the 1-sigma bearing error applied when a
 projectile is launched.  Better crews, commanders, sensors and weapons
@@ -29,9 +28,6 @@ if TYPE_CHECKING:
     from spacefleet.core.types import Vector2D
     from spacefleet.models.ship import Ship
     from spacefleet.models.weapon import WeaponMount
-
-# Fraction of a turn ships drift and projectiles advance per resolver step.
-STEP_FRACTION = 0.5
 
 # 1-sigma bearing error (degrees) for a green crew with baseline gear.
 BASE_SPREAD_DEG = 2.5
@@ -57,7 +53,7 @@ class LeadSolution:
 
     bearing: float
     intercept_distance: float  # GU from the shooter to the predicted impact
-    steps: int  # resolver half-turn steps until impact
+    time: float  # turns from firing until impact
 
 
 def lead_solution(
@@ -70,34 +66,35 @@ def lead_solution(
 ) -> LeadSolution | None:
     """Return the aim point for a projectile fired from *origin*, or None.
 
-    Step *k* moves the target to ``target + v·k`` and sweeps the projectile
-    over ``[speed·(k-1), speed·k]`` along its bearing (both scaled by
-    :data:`STEP_FRACTION`).  Aiming straight at the target's step-*k*
-    position hits when that position lies inside the step-*k* sweep.
-    Returns None when the target stays out of reach within *max_range*.
+    Solves ``|target + v·t - origin| = speed·t`` for the smallest ``t > 0``,
+    with ``v`` the target's velocity in GU per turn.  Returns None when the
+    salvo can never catch the target or the intercept lies beyond
+    *max_range*.
     """
     if projectile_speed <= 0:
         return None
-    velocity = heading_to_vector(target_heading) * (target_speed * STEP_FRACTION)
-    sweep = projectile_speed * STEP_FRACTION
-    max_steps = math.ceil(max_range / sweep)
-    best: tuple[float, LeadSolution] | None = None
-    for step in range(1, max_steps + 1):
-        predicted = target_position + velocity * step
-        reach = distance(origin, predicted)
-        if reach > max_range:
-            continue
-        near = sweep * (step - 1)
-        far = min(sweep * step, max_range)
-        gap = max(near - reach, reach - far, 0.0)
-        if gap > HIT_RADIUS:
-            continue
-        solution = LeadSolution(bearing_from_to(origin, predicted), reach, step)
-        if gap == 0.0:
-            return solution
-        if best is None or gap < best[0]:
-            best = (gap, solution)
-    return None if best is None else best[1]
+    velocity = heading_to_vector(target_heading) * target_speed
+    offset = target_position - origin
+    a = velocity.x**2 + velocity.y**2 - projectile_speed**2
+    b = 2.0 * (offset.x * velocity.x + offset.y * velocity.y)
+    c = offset.x**2 + offset.y**2
+    if abs(a) < 1e-12:
+        roots = [-c / b] if b != 0 else []
+    else:
+        disc = b * b - 4.0 * a * c
+        if disc < 0:
+            return None
+        root = math.sqrt(disc)
+        roots = [(-b - root) / (2.0 * a), (-b + root) / (2.0 * a)]
+    times = [t for t in roots if t > 0]
+    if not times:
+        return None
+    t = min(times)
+    reach = projectile_speed * t
+    if reach > max_range:
+        return None
+    predicted = target_position + velocity * t
+    return LeadSolution(bearing_from_to(origin, predicted), reach, t)
 
 
 def aim_for(
@@ -111,7 +108,7 @@ def aim_for(
         reach = distance(shooter.position, target_position)
         if reach > mount.weapon.range:
             return None
-        return LeadSolution(bearing_from_to(shooter.position, target_position), reach, 0)
+        return LeadSolution(bearing_from_to(shooter.position, target_position), reach, 0.0)
     return lead_solution(
         shooter.position,
         target_position,

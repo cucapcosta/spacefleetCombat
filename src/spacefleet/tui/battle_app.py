@@ -1,8 +1,9 @@
 """Full-screen Textual battle: plan orders, resolve the turn, watch it play back.
 
-States: PLANNING -> (confirm summary) -> RESOLVING -> PLAYBACK -> PLANNING.
-Before every PLANNING the battle ends, in this order, on defeat, victory or
-the turn limit.
+States: PLANNING -> (confirm summary) -> RESOLVING -> PLAYBACK -> (turn
+report) -> PLANNING.  Before every PLANNING the battle ends, in this order,
+on defeat, victory or the turn limit; an ending battle skips the report.
+The report shows only after a turn's first playback, not after a replay.
 
 Key map
 -------
@@ -11,14 +12,17 @@ Key map
 Key                     Action
 ======================  =====================================================
 Tab / Shift+Tab         Next / previous own ship (planning)
-m f t h p               Order panel: Move, Fire, Tactic, Ability, Pass
+Arrows                  Order panel top menu: ↑/↓ speed, ←/→ turn (maneuver)
+f b t h p               Order panel: Fire, Boarding, Tactic, Ability, Pass
 Esc                     Order panel: back one menu level
 Enter                   Confirm turn (order panel at its top menu)
 r                       Replay the last resolved turn
+L                       Battle log, last turn's report on top (planning)
 Space                   Skip playback to the end
 + / -                   Zoom (planning) · playback speed 0.5x/1x/2x
 Mouse wheel / drag      Zoom / pan the map
-Arrows (h j k l)        Pan the map while it has focus
+Arrows (h j k l)        Pan the map while it has focus (arrows: submenu cursor
+                        while the order panel is inside a submenu)
 F / C                   Fit every ship / centre on the selected ship
 A / S / D               Overlays: weapon arcs, sensor rings, drift
 o                       Show / hide the side panel (terminals < 120 columns)
@@ -58,9 +62,12 @@ from spacefleet.tui.model.orders import (
 )
 from spacefleet.tui.model.snapshot import PHASES
 from spacefleet.tui.model.timeline import TimelineBuilder
-from spacefleet.tui.widgets.event_log import EventLog
+from spacefleet.tui.model.turn_report import build_turn_report
+from spacefleet.tui.widgets.event_log import EventLog, turn_separator
+from spacefleet.tui.widgets.log_screen import LogScreen
 from spacefleet.tui.widgets.order_panel import (
     AbilitySet,
+    ManeuverSet,
     OrderPanel,
     OrderSet,
     PreviewChanged,
@@ -69,6 +76,7 @@ from spacefleet.tui.widgets.order_panel import (
 )
 from spacefleet.tui.widgets.status_panel import ShipSelected, StatusPanel
 from spacefleet.tui.widgets.tactical_map import ArcSpec, TacticalMap
+from spacefleet.tui.widgets.turn_report_screen import TurnReportScreen
 
 if TYPE_CHECKING:
     from textual import events
@@ -80,10 +88,11 @@ if TYPE_CHECKING:
     from spacefleet.cli.terminal_ui import TerminalUI
     from spacefleet.core.types import Vector2D
     from spacefleet.models.ship import Ship
-    from spacefleet.net.commands import Command
+    from spacefleet.net.commands import Command, Maneuver
     from spacefleet.net.game_state import GameState
     from spacefleet.tui.model.snapshot import BattleSnapshot
     from spacefleet.tui.model.timeline import Timeline
+    from spacefleet.tui.model.turn_report import TurnReport
 
 TURN_LIMIT = 60
 MIN_SIZE = (80, 24)
@@ -113,14 +122,23 @@ _ARC_STYLES = {
 # ── pending-turn summary ────────────────────────────────────────────
 
 
-def format_pending(session: BattleSession, draft: OrderDraft) -> str:
-    """Human-readable orders for every alive player ship; idle ships pass."""
+def format_pending(
+    session: BattleSession, draft: OrderDraft, *, labels: dict[str, str] | None = None
+) -> str:
+    """Human-readable orders for every alive player ship; idle ships pass.
+
+    Each line is ``Name: <maneuver>; <action>``.  *labels* (ship id -> map
+    label) names targets as on the map.
+    """
     state = session.state
     lines = ["Pending turn:"]
     for ship_id in alive_player_ids(session):
         ship = state.ships[ship_id]
         command = draft.commands.get(ship_id)
-        text = "Pass (no order)" if command is None else format_command(session, ship, command)
+        action = (
+            "pass (no order)" if command is None else format_command(session, ship, command, labels)
+        )
+        text = f"{format_maneuver(ship, draft.maneuvers.get(ship_id))}; {action}"
         stance = draft.stances.get(ship_id)
         if stance is not None:
             text += f"; stance {stance.value.replace('_', ' ').title()}"
@@ -139,25 +157,54 @@ def format_pending(session: BattleSession, draft: OrderDraft) -> str:
     return "\n".join(lines)
 
 
-def format_command(session: BattleSession, ship: Ship, command: Command) -> str:
+def format_maneuver(ship: Ship, maneuver: Maneuver | None) -> str:
+    """``speed 8, turn 30° starboard``; ``hold course`` when nothing changes."""
+    parts = []
+    if maneuver is not None and maneuver.speed is not None and maneuver.speed != ship.speed:
+        parts.append(f"speed {maneuver.speed:g}")
+    if maneuver is not None and maneuver.turn:
+        side = "port" if maneuver.turn < 0 else "starboard"
+        parts.append(f"turn {abs(maneuver.turn):g}° {side}")
+    return ", ".join(parts) or "hold course"
+
+
+def format_command(
+    session: BattleSession,
+    ship: Ship,
+    command: Command,
+    labels: dict[str, str] | None = None,
+) -> str:
+    """The action part of *command*: ``fire 2 weapons at E1``, ``pass``, ..."""
     args = command.args
     if command.action == "pass":
-        return "Wait"
-    if command.action == "stop":
-        return "Stop"
-    if command.action == "ahead":
-        return f"Ahead at {float(args['speed']):g} GU/turn"
-    if command.action == "turn":
-        return f"Turn {args['direction']} {float(args['degrees']):g}°"
+        return "pass"
     if command.action == "strike":
-        target = _target_name(session, str(args["target"]))
-        return f"Board {target}; target {args['subsystem']}"
+        target = _target_label(session, str(args["target"]), labels)
+        return f"board {target}, target {args['subsystem']}"
     shots = cast("list[dict[str, int | float | str]]", args.get("shots", [args]))
-    parts = []
+    # Weapons sharing an aim are counted; a lone weapon is named.
+    groups: dict[str, list[str]] = {}
     for shot in shots:
         mount = next(m for m in ship.weapons if m.slot_id == int(shot["slot"]))
-        parts.append(f"{mount.display_name} → bearing {float(shot['bearing']):g}° rel")
-    return "Fire " + ", ".join(parts)
+        target_id = shot.get("target")
+        aim = (
+            f"bearing {float(shot['bearing']):g}° rel"
+            if target_id is None
+            else _target_label(session, str(target_id), labels)
+        )
+        groups.setdefault(aim, []).append(mount.display_name)
+    parts = [
+        f"{names[0] if len(names) == 1 else f'{len(names)} weapons'} at {aim}"
+        for aim, names in groups.items()
+    ]
+    return "fire " + ", ".join(parts)
+
+
+def _target_label(session: BattleSession, target_id: str, labels: dict[str, str] | None) -> str:
+    """The target's map label when known, else its name as seen."""
+    if labels and target_id in labels:
+        return labels[target_id]
+    return _target_name(session, target_id)
 
 
 def _target_name(session: BattleSession, target_id: str) -> str:
@@ -297,14 +344,15 @@ class BattleApp(App[BattleOutcome]):
         Binding("shift+tab", "cycle_ship(-1)", "Ship", show=False, priority=True),
         # Order letters reach the panel even while the map has focus (where
         # h pans instead); the panel's own bindings win when it is focused.
-        Binding("m", "order('move')", "Move", show=False),
         Binding("f", "order('fire')", "Fire", show=False),
+        Binding("b", "order('strike')", "Board", show=False),
         Binding("t", "order('tactic')", "Tactic", show=False),
         Binding("h", "order('ability')", "Ability", show=False),
         Binding("p", "order('pass')", "Pass", show=False),
         Binding("escape", "order('back')", "Back", show=False),
         Binding("space", "skip", "Skip"),
         Binding("r", "replay", "Replay"),
+        Binding("L", "log", "Log"),
         Binding("plus,equals_sign", "faster", "Speed/zoom", show=False),
         Binding("minus,underscore", "slower", "Speed/zoom", show=False),
         Binding("F", "fit", "Fit", show=False),
@@ -344,6 +392,9 @@ class BattleApp(App[BattleOutcome]):
         self._log_base: list[str] = []
         self._log_shown = 0
         self._too_small = False
+        # Each resolved turn's full log, oldest first, and its report.
+        self.history: list[tuple[int, list[str]]] = []
+        self.last_report: TurnReport | None = None
 
     # ── layout ──────────────────────────────────────────────────────
 
@@ -476,7 +527,10 @@ class BattleApp(App[BattleOutcome]):
             if phase not in snapshots:
                 capture(phase, state)
         self.timeline = TimelineBuilder(snapshots, log, self.session.player_id).build()
-        self._log_base = [*self.event_log.entries, f"── Turn {state.turn} ──"]
+        final = self.timeline.sample(self.timeline.duration)
+        self.history.append((state.turn, list(final.log_lines)))
+        self.last_report = build_turn_report(snapshots, log, self.session.player_id)
+        self._log_base = [*self.event_log.entries, turn_separator(state.turn)]
         self._start_playback(replay=False)
 
     # ── playback ────────────────────────────────────────────────────
@@ -523,7 +577,15 @@ class BattleApp(App[BattleOutcome]):
         self._stop_timer()
         self.playhead = self.timeline.duration
         self._show_at(self.timeline.duration)
-        self._begin_planning(fresh=not self._replaying)
+        if self._replaying:
+            self._begin_planning(fresh=False)
+        elif self.last_report is None or self.terminal_outcome() is not None:
+            self._begin_planning(fresh=True)
+        else:
+            self.push_screen(TurnReportScreen(self.last_report), self._on_report_closed)
+
+    def _on_report_closed(self, _result: None) -> None:
+        self._begin_planning(fresh=True)
 
     def _stop_timer(self) -> None:
         if self._timer is not None:
@@ -543,6 +605,8 @@ class BattleApp(App[BattleOutcome]):
             return self.phase == PLANNING and self.selected is not None
         if action == "skip":
             return self.phase == PLAYBACK
+        if action == "log":
+            return self.phase == PLANNING
         if action == "replay":
             return self.timeline is not None and self.phase in (PLANNING, PLAYBACK)
         return True
@@ -550,9 +614,13 @@ class BattleApp(App[BattleOutcome]):
     def action_help(self) -> None:
         self.push_screen(HelpScreen())
 
+    def action_log(self) -> None:
+        self.push_screen(LogScreen(self.history, self.last_report))
+
     def action_confirm_turn(self) -> None:
         self.push_screen(
-            ConfirmTurnScreen(format_pending(self.session, self.draft)), self._on_confirmed
+            ConfirmTurnScreen(format_pending(self.session, self.draft, labels=self._labels)),
+            self._on_confirmed,
         )
 
     def _on_confirmed(self, resolve: bool | None) -> None:
@@ -647,6 +715,9 @@ class BattleApp(App[BattleOutcome]):
         self._update_overlay()
         self._update_header()
 
+    def on_maneuver_set(self, message: ManeuverSet) -> None:
+        self._update_overlay()
+
     def on_stance_set(self, message: StanceSet) -> None:
         self._update_header()
 
@@ -663,7 +734,7 @@ class BattleApp(App[BattleOutcome]):
             ship.id,
             arcs=weapon_arcs(ship),
             sensor=sensor_rings(ship, self.session.state),
-            drift=drift_prediction(ship, self.draft.commands.get(ship.id), self.session.state),
+            drift=drift_prediction(ship, self.draft.maneuvers.get(ship.id), self.session.state),
         )
 
     def _update_header(self) -> None:
@@ -718,24 +789,12 @@ def sensor_rings(ship: Ship, state: GameState) -> tuple[float, float, float]:
 
 
 def drift_prediction(
-    ship: Ship, command: Command | None, state: GameState
-) -> tuple[float, Vector2D]:
-    """``(heading, position)`` *ship* ends the turn at under *command*."""
-    if command is not None and command.action == "ahead":
-        pos, heading = predict_move(ship, float(command.args["speed"]), "", 0.0, state=state)
-    elif command is not None and command.action == "stop":
-        pos, heading = predict_move(ship, 0.0, "", 0.0, state=state)
-    elif command is not None and command.action == "turn":
-        pos, heading = predict_move(
-            ship,
-            None,
-            str(command.args["direction"]),
-            float(command.args["degrees"]),
-            state=state,
-        )
-    else:
-        pos, heading = predict_move(ship, None, "", 0.0, state=state)
-    return heading, pos
+    ship: Ship, maneuver: Maneuver | None, state: GameState
+) -> tuple[float, Vector2D, Vector2D]:
+    """``(heading, end, mid)``: where *ship* ends the turn under *maneuver*,
+    passing through *mid* halfway."""
+    prediction = predict_move(ship, maneuver, state=state)
+    return prediction.end_heading, prediction.end, prediction.mid
 
 
 # ── runners ─────────────────────────────────────────────────────────

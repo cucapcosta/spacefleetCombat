@@ -10,11 +10,8 @@ from spacefleet.combat.critical_hits import (
     apply_critical_hit,
     roll_critical_hit,
 )
-from spacefleet.core.game_loop import (
-    check_projectile_collisions,
-    cleanup_projectiles,
-    move_projectiles,
-)
+from spacefleet.combat.projectile_resolution import HIT_RADIUS
+from spacefleet.core.game_loop import advance_half, cleanup_projectiles
 from spacefleet.core.types import (
     Arc,
     Faction,
@@ -128,6 +125,15 @@ def _make_projectile(*, speed: float = 60.0, max_range: float = 45.0) -> Project
 
 
 # ── Projectile final segment ──────────────────────────────────
+# Continuous collision (spec 2026-09-30): salvo and ships advance together in
+# two halves; a salvo stops at max range and hits at the first contact instant.
+
+
+def _full_turn(projectiles: list[Projectile], ships: list[Ship]) -> list[object]:
+    impacts: list[object] = []
+    for half in (0, 1):
+        impacts += advance_half(ships, projectiles, DiceRoller(seed=1), start=0.5 * half)
+    return impacts
 
 
 @pytest.mark.parametrize("target_distance", [40.0, 45.0])
@@ -136,12 +142,12 @@ def test_projectile_sweeps_final_range_limited_segment(target_distance: float) -
     target = _make_ship("Target", faction=Faction.CHAOS_FLEET)
     target.position = Vector2D(0.0, target_distance)
 
-    movements = move_projectiles([projectile], fraction=1.0)
-    impacts = check_projectile_collisions(movements, [target], DiceRoller(seed=1))
+    impacts = _full_turn([projectile], [target])
 
-    assert projectile.position == Vector2D(0.0, 45.0)
-    assert projectile.distance_traveled == 45.0
-    assert [impact[1] for impact in impacts] == [target]
+    assert len(impacts) == 1
+    # New rule: the salvo stops where it hit, at the edge of the hit radius.
+    assert projectile.position == Vector2D(0.0, target_distance - HIT_RADIUS)
+    assert projectile.distance_traveled == target_distance - HIT_RADIUS
 
 
 def test_projectile_hit_radius_does_not_extend_max_range() -> None:
@@ -149,8 +155,7 @@ def test_projectile_hit_radius_does_not_extend_max_range() -> None:
     target = _make_ship("Target", faction=Faction.CHAOS_FLEET)
     target.position = Vector2D(0.0, 46.0)
 
-    movements = move_projectiles([projectile], fraction=1.0)
-    impacts = check_projectile_collisions(movements, [target], DiceRoller(seed=1))
+    impacts = _full_turn([projectile], [target])
 
     assert impacts == []
     assert target.hull_current == target.hull_max
@@ -160,9 +165,9 @@ def test_projectile_missing_at_final_segment_expires_during_cleanup() -> None:
     projectile = _make_projectile()
     projectiles = [projectile]
 
-    movements = move_projectiles(projectiles, fraction=1.0)
-    assert check_projectile_collisions(movements, [], DiceRoller(seed=1)) == []
+    assert _full_turn(projectiles, []) == []
     assert projectile.alive
+    assert projectile.distance_traveled == 45.0
 
     assert cleanup_projectiles(projectiles) == [projectile]
     assert not projectile.alive
@@ -173,14 +178,14 @@ def test_projectile_impact_is_resolved_once_and_dead_projectile_does_not_move() 
     projectile = _make_projectile()
     target = _make_ship("Target", faction=Faction.CHAOS_FLEET)
     target.position = Vector2D(0.0, 40.0)
-    movements = move_projectiles([projectile], fraction=1.0)
 
-    impacts = check_projectile_collisions(movements, [target], DiceRoller(seed=1))
+    impacts = _full_turn([projectile], [target])
 
     assert len(impacts) == 1
     assert not projectile.alive
-    assert check_projectile_collisions(movements, [target], DiceRoller(seed=1)) == []
-    assert move_projectiles([projectile], fraction=1.0) == []
+    stopped = projectile.position
+    assert _full_turn([projectile], [target]) == []
+    assert projectile.position == stopped
 
 
 # ── Critical Hit Table ────────────────────────────────────────

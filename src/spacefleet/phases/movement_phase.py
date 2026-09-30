@@ -2,10 +2,13 @@
 
 Handles morale speed caps, applies speed/turn orders (spending
 combustion through ``Ship.set_speed``), then drifts every alive ship.
+A turn's movement is two halves; the ordered turn is split between them
+and never carries over to the next turn.
 """
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -13,6 +16,7 @@ from spacefleet.models.morale import speed_cap
 
 if TYPE_CHECKING:
     from spacefleet.core.game_state import CoreGameState
+    from spacefleet.core.types import Vector2D
     from spacefleet.models.ship import Ship
 
 
@@ -40,27 +44,27 @@ class MoveEvent:
     heading_after: float = 0.0
 
 
-def resolve_movement_phase(
+def apply_move_orders(
     ships: list[Ship],
     orders: dict[str, MoveOrder],
     *,
-    drift_fraction: float = 0.5,
     state: CoreGameState | None = None,
 ) -> list[MoveEvent]:
-    """Apply morale caps + orders + drift; return events.
-
-    Order is:
+    """Apply morale caps and speed / turn orders once, at the start of movement.
 
     1. Morale-driven speed cap (``models.morale.speed_cap``).
-    2. Per-ship speed / turn orders (combustion spent via
-       ``Ship.set_speed`` when over-burning).
-    3. Half-turn drift for every alive ship.
+    2. Per-ship speed orders (combustion spent via ``Ship.set_speed`` when
+       over-burning).
+    3. Per-ship turn orders, clamped to ``Ship.max_turn_this_turn`` at the
+       new speed.  Turns never carry over: any leftover ``pending_turn`` is
+       dropped first.
     """
     events: list[MoveEvent] = []
 
     for ship in ships:
         if not ship.alive:
             continue
+        ship.pending_turn = 0.0
         speed_max = ship.effective_speed_max
         if state is not None:
             from spacefleet.commander.passive_skills import (
@@ -102,29 +106,76 @@ def resolve_movement_phase(
                 ),
             )
 
-        if order.turn_degrees is not None and order.turn_degrees != 0.0:
-            ship.apply_turn(order.turn_degrees)
+        if order.turn_degrees:
+            limit = ship.max_turn_this_turn(ship.speed)
+            degrees = math.copysign(min(abs(order.turn_degrees), limit), order.turn_degrees)
+            if degrees == 0.0:
+                continue
+            ship.apply_turn(degrees)
             events.append(
                 MoveEvent(
                     kind="turn",
                     ship_id=ship.id,
                     turn_direction=order.turn_direction,
-                    turn_degrees=abs(order.turn_degrees),
-                    detail=f"{order.turn_degrees:+.0f}°",
+                    turn_degrees=abs(degrees),
+                    detail=f"{degrees:+.0f}°",
                 ),
             )
+
+    return events
+
+
+def drift_ship(
+    ship: Ship,
+    fraction: float,
+    *,
+    remaining: float = 1.0,
+    substeps: int = 1,
+) -> list[tuple[Vector2D, float]]:
+    """Move *ship* for *fraction* of the turn, *remaining* of it still to go.
+
+    Executes the matching share of the ordered turn (``pending_turn ×
+    fraction / remaining``), so a turn split in halves turns half in each.
+    Returns ``(position, heading)`` at the start and after each of the
+    *substeps* equal straight-line-sampled steps.
+    """
+    turn = ship.pending_turn * fraction / remaining if remaining > 0 else 0.0
+    path = [(ship.position, ship.heading)]
+    for _ in range(substeps):
+        ship.drift(fraction / substeps, turn / substeps)
+        path.append((ship.position, ship.heading))
+    return path
+
+
+def resolve_movement_phase(
+    ships: list[Ship],
+    orders: dict[str, MoveOrder],
+    *,
+    drift_fraction: float = 1.0,
+    state: CoreGameState | None = None,
+) -> list[MoveEvent]:
+    """Apply orders (:func:`apply_move_orders`) then drift; return events.
+
+    Ships move for *drift_fraction* of the turn (a full turn by default),
+    turning that share of their ordered turn.  Salvos are not involved; the
+    turn resolver moves ships and salvos together via
+    ``core.game_loop.advance_half``.
+    """
+    events = apply_move_orders(ships, orders, state=state)
 
     for ship in ships:
         if not ship.alive:
             continue
-        before, after = ship.apply_drift(drift_fraction)
+        path = drift_ship(ship, drift_fraction)
+        if drift_fraction >= 1.0:
+            ship.pending_turn = 0.0
         events.append(
             MoveEvent(
                 kind="drift",
                 ship_id=ship.id,
-                heading_before=before,
-                heading_after=after,
-                detail=f"hdg {before:.0f}→{after:.0f}",
+                heading_before=path[0][1],
+                heading_after=path[-1][1],
+                detail=f"hdg {path[0][1]:.0f}→{path[-1][1]:.0f}",
             ),
         )
 

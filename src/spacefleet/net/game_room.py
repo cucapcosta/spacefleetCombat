@@ -12,10 +12,11 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from spacefleet.models.ship import Ship
+    from spacefleet.net.commands import Maneuver
     from spacefleet.net.game_state import GameState
 
 from spacefleet.net.ai_controller import AIController
-from spacefleet.net.commands import Command, validate_command
+from spacefleet.net.commands import Command, validate_command, validate_move
 from spacefleet.net.protocol import (
     MSG_COMMAND,
     MSG_COMMAND_ACK,
@@ -254,9 +255,13 @@ class GameRoom:
     ) -> Command | None:
         """Read messages until a valid costed command is received.
 
-        Handles free queries inline (status, scan, weapons, help).
+        Handles free queries inline (status, scan, weapons, help, stance)
+        and the free ``move`` maneuver, which is held until the costed
+        fire/strike/pass arrives and rides on it.  A maneuver sent inside
+        the costed command itself wins over the held one.
         Returns None if the player disconnects.
         """
+        pending: dict[str, Any] | None = None  # wire maneuver from "move"
         while True:
             msg = await read_message(conn.reader)
             if msg is None:
@@ -281,73 +286,42 @@ class GameRoom:
                         self.state,
                     )
                 await _safe_write(conn, {"type": MSG_QUERY_RESULT, "text": text})
-                # Re-send prompt
-                alive_ships = self.state.alive_ships_for(player_id)
-                idx = next(
-                    (i for i, s in enumerate(alive_ships, 1) if s.id == ship.id),
-                    1,
+                await self._send_prompt(player_id, conn, ship)
+                continue
+
+            if msg_type == MSG_COMMAND and msg.get("action") == "move":
+                # Free maneuver — validate, hold, re-prompt
+                maneuver = validate_move(msg, ship, player_id, owner_lookup)
+                if isinstance(maneuver, str):
+                    await self._reject(player_id, conn, ship, maneuver)
+                    continue
+                pending = {"speed": maneuver.speed, "turn": maneuver.turn}
+                text = (
+                    f"  Maneuver set: {_describe_maneuver(maneuver)} (free)."
+                    " Now fire, strike or pass."
                 )
-                prompt_text = self.renderer.render_prompt(
-                    ship,
-                    idx,
-                    len(alive_ships),
-                    self.state,
-                    player_id,
-                )
-                await _safe_write(
-                    conn,
-                    {
-                        "type": MSG_PROMPT,
-                        "ship_id": ship.id,
-                        "ship_name": ship.name,
-                        "text": prompt_text,
-                    },
-                )
+                await _safe_write(conn, {"type": MSG_QUERY_RESULT, "text": text})
+                await self._send_prompt(player_id, conn, ship)
                 continue
 
             if msg_type == MSG_COMMAND:
-                # Validate the command
+                if pending is not None and msg.get("maneuver") is None:
+                    msg = {**msg, "maneuver": pending}
                 result = validate_command(msg, ship, player_id, owner_lookup)
                 if isinstance(result, str):
-                    # Validation error
-                    await _safe_write(
-                        conn,
-                        {
-                            "type": MSG_COMMAND_REJECT,
-                            "ship_id": ship.id,
-                            "reason": result,
-                        },
-                    )
-                    # Re-send prompt
-                    alive_ships = self.state.alive_ships_for(player_id)
-                    idx = next(
-                        (i for i, s in enumerate(alive_ships, 1) if s.id == ship.id),
-                        1,
-                    )
-                    prompt_text = self.renderer.render_prompt(
-                        ship,
-                        idx,
-                        len(alive_ships),
-                        self.state,
-                    )
-                    await _safe_write(
-                        conn,
-                        {
-                            "type": MSG_PROMPT,
-                            "ship_id": ship.id,
-                            "ship_name": ship.name,
-                            "text": prompt_text,
-                        },
-                    )
+                    await self._reject(player_id, conn, ship, result)
                     continue
 
                 # Valid command
+                accepted = result.action
+                if result.maneuver is not None:
+                    accepted += f" + {_describe_maneuver(result.maneuver)}"
                 await _safe_write(
                     conn,
                     {
                         "type": MSG_COMMAND_ACK,
                         "ship_id": ship.id,
-                        "text": f"  Command accepted: {result.action}",
+                        "text": f"  Command accepted: {accepted}",
                     },
                 )
                 return result
@@ -360,6 +334,48 @@ class GameRoom:
                     "message": f"Expected command or query, got '{msg_type}'",
                 },
             )
+
+    async def _reject(
+        self,
+        player_id: str,
+        conn: PlayerConnection,
+        ship: Ship,
+        reason: str,
+    ) -> None:
+        await _safe_write(
+            conn,
+            {"type": MSG_COMMAND_REJECT, "ship_id": ship.id, "reason": reason},
+        )
+        await self._send_prompt(player_id, conn, ship)
+
+    async def _send_prompt(
+        self,
+        player_id: str,
+        conn: PlayerConnection,
+        ship: Ship,
+    ) -> None:
+        """Re-send *ship*'s prompt after a free action or a rejection."""
+        alive_ships = self.state.alive_ships_for(player_id)
+        idx = next(
+            (i for i, s in enumerate(alive_ships, 1) if s.id == ship.id),
+            1,
+        )
+        prompt_text = self.renderer.render_prompt(
+            ship,
+            idx,
+            len(alive_ships),
+            self.state,
+            player_id,
+        )
+        await _safe_write(
+            conn,
+            {
+                "type": MSG_PROMPT,
+                "ship_id": ship.id,
+                "ship_name": ship.name,
+                "text": prompt_text,
+            },
+        )
 
     def _handle_stance_query(self, ship: Ship, query: str) -> str:
         """Process a stance query — show info or switch stance.
@@ -433,6 +449,15 @@ async def _safe_write(
         await write_message(conn.writer, msg)
     except (ConnectionResetError, BrokenPipeError, OSError):
         conn.connected = False
+
+
+def _describe_maneuver(maneuver: Maneuver) -> str:
+    """``speed 8, starboard 30°`` style summary of a maneuver."""
+    speed = "hold speed" if maneuver.speed is None else f"speed {maneuver.speed:g}"
+    if maneuver.turn == 0:
+        return speed
+    side = "starboard" if maneuver.turn > 0 else "port"
+    return f"{speed}, {side} {abs(maneuver.turn):g}\u00b0"
 
 
 def _dim_text(text: str) -> str:

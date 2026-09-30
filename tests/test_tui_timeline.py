@@ -17,7 +17,7 @@ from spacefleet.net.turn_resolver import TurnLog, resolve_turn
 from spacefleet.phases.command_phase import AbilityRejectedEvent
 from spacefleet.spatial.geometry import bearing_from_to, relative_bearing_360
 from spacefleet.tui.model.capture import snapshot_for
-from spacefleet.tui.model.snapshot import PHASES, BattleSnapshot
+from spacefleet.tui.model.snapshot import PHASES, BattleSnapshot, ShipView
 from spacefleet.tui.model.timeline import Timeline, TimelineBuilder, Track
 
 _FAR = Vector2D(0.0, 500.0)
@@ -44,8 +44,31 @@ def _run(
         snaps[name] = snapshot_for(s, observer, name, labels=labels)
 
     log = resolve_turn(state, commands, on_phase=capture)
-    assert list(snaps) == list(PHASES)
+    # "mid_move" is optional: older resolvers report a single move step.
+    assert list(snaps) in (list(PHASES), [p for p in PHASES if p != "mid_move"])
     return snaps, log
+
+
+def _without_mid(snaps: dict[str, BattleSnapshot]) -> dict[str, BattleSnapshot]:
+    return {phase: snap for phase, snap in snaps.items() if phase != "mid_move"}
+
+
+def _with_mid(
+    snaps: dict[str, BattleSnapshot], positions: dict[str, Vector2D]
+) -> dict[str, BattleSnapshot]:
+    """Snapshots with a synthetic ``mid_move``: after_fire moved to *positions*."""
+    base = snaps["after_fire"]
+    ships = tuple(
+        replace(s, position=positions[s.id]) if s.id in positions else s for s in base.ships
+    )
+    mid = BattleSnapshot(base.turn, "mid_move", ships, base.projectiles)
+    out = _without_mid(snaps)
+    return {phase: out[phase] if phase != "mid_move" else mid for phase in PHASES}
+
+
+def _who(view: ShipView | None) -> str:
+    assert view is not None
+    return f"{view.name} [{view.label}]"
 
 
 def _duel_state() -> GameState:
@@ -167,9 +190,13 @@ def test_lance_hit_yields_beam_impact_damage_text_and_log() -> None:
     texts = [tr for tr in _kinds(tl.tracks, "damage_text") if tr.t0 == hits[0].t0]
     assert texts and texts[0].payload["text"] == "-2"
 
-    attacker = start.ship("p1_dauntless").label  # type: ignore[union-attr]
-    target = start.ship("ai_hulk_1").label  # type: ignore[union-attr]
-    line = f"{attacker} lance → {target}: 2 dmg"
+    target = start.ship("ai_hulk_1")
+    assert target is not None and target.hull is not None and target.hull_max is not None
+    hull = snaps["start"].ship("ai_hulk_1").hull  # type: ignore[union-attr]
+    line = (
+        f"{_who(start.ship('p1_dauntless'))} lance hits {_who(target)}: "
+        f"2 hull damage (hull {hull - 2}/{target.hull_max})"  # type: ignore[operator]
+    )
     assert line not in tl.sample(lance.t0 - 0.01).log_lines
     assert line in tl.sample(lance.t0).log_lines
 
@@ -183,8 +210,9 @@ def test_lance_effect_progresses_while_active() -> None:
     assert not [e for e in tl.sample(lance.t1 + 0.01).effects if e.kind == "lance"]
 
 
-def test_salvo_appears_at_launch_and_impacts_proportionally() -> None:
-    _snaps, tl = _duel()
+def test_salvo_appears_at_launch_and_impacts_at_the_event_time() -> None:
+    snaps, log = _run(_duel_state(), _duel_commands())
+    tl = TimelineBuilder(snaps, log, "p1").build()
     (launch,) = _kinds(tl.tracks, "salvo_launch")
     pid = launch.payload["projectile_id"]
     assert pid is not None
@@ -194,8 +222,10 @@ def test_salvo_appears_at_launch_and_impacts_proportionally() -> None:
     m0, m1 = tl.windows["move"]
     (impact,) = [tr for tr in _kinds(tl.tracks, "impact") if tr.t0 >= m0]
     assert impact.payload["target_id"] == "ai_hulk_1"
-    # Salvo travels 30 GU this move; the hulk sits ~22 GU down range.
-    assert 0.5 < (impact.t0 - m0) / (m1 - m0) < 0.9
+    # Impacts land at SalvoImpactEvent.time, mapped onto the move window.
+    event = next(e for e in log.events if isinstance(e, turn_resolver.SalvoImpactEvent))
+    assert 0.0 < event.time < 1.0
+    assert impact.t0 == pytest.approx(m0 + event.time * (m1 - m0))
     assert pid in {p.id for p in tl.sample(impact.t0 - 0.01).projectiles}
     assert pid not in {p.id for p in tl.sample(impact.t0 + 0.01).projectiles}
 
@@ -237,7 +267,17 @@ def test_hidden_attacker_yields_incoming_marker_but_no_beam() -> None:
 
     frame = tl.sample(incoming.t0)
     assert frame.incoming == (("p1_dauntless", 90.0),)
-    assert any("unseen" in line for line in frame.log_lines)
+    dauntless = snaps["after_fire"].ship("p1_dauntless")
+    assert dauntless is not None
+    damage = impact.payload["damage"]
+    hull = snaps["start"].ship("p1_dauntless").hull  # type: ignore[union-attr]
+    line = (  # the Dauntless's single shield point stops the first hit
+        f"unknown ship lance hits {_who(dauntless)}: 1 blocked by shields, "
+        f"{damage} hull damage "
+        f"(hull {hull - damage}/{dauntless.hull_max})"
+    )
+    assert line in frame.log_lines
+    assert not any("Hulk" in ln or "hulk" in ln for ln in frame.log_lines)
     assert all("ai_hulk_2" not in str(tr.payload) for tr in tl.tracks)
 
 
@@ -310,7 +350,9 @@ def _movement_only() -> tuple[dict[str, BattleSnapshot], Timeline]:
 
 
 def test_trails_follow_moving_ship_through_move_window() -> None:
-    snaps, tl = _duel()
+    snaps, log = _run(_duel_state(), _duel_commands())
+    snaps = _without_mid(snaps)
+    tl = TimelineBuilder(snaps, log, "p1").build()
     m0, m1 = tl.windows["move"]
     before = snaps["after_fire"].ship("p1_sword_2")
     after = snaps["after_move"].ship("p1_sword_2")
@@ -362,15 +404,17 @@ def test_movement_only_turn_logs_speed_and_drift() -> None:
     before = snaps["after_fire"].ship("p1_sword_1")
     after = snaps["after_move"].ship("p1_sword_1")
     assert before is not None and after is not None
-    label = after.label
-    distance = before.position.distance_to(after.position)
+    mid = snaps.get("mid_move", snaps["after_fire"]).ship("p1_sword_1")
+    assert mid is not None
+    distance = before.position.distance_to(mid.position) + mid.position.distance_to(after.position)
     assert distance > 0.05
 
     m0, _m1 = tl.windows["move"]
-    assert not any(label in line for line in tl.sample(m0 - 0.01).log_lines)
-    lines = tl.sample(tl.duration).log_lines
-    assert f"{label} speed 0 → 8 GU/turn" in lines
-    assert f"{label} moved {distance:.1f} GU, heading {after.heading:.0f}°" in lines
+    assert not any(after.label in line for line in tl.sample(m0 - 0.01).log_lines)
+    lines = [ln for ln in tl.sample(tl.duration).log_lines if _who(after) in ln]
+    assert lines == [
+        f"{_who(after)} speed 0 → 8, moved {distance:.1f} GU, heading {after.heading:.0f}°"
+    ]
 
 
 def test_turn_order_is_logged() -> None:
@@ -378,8 +422,10 @@ def test_turn_order_is_logged() -> None:
     turn = {"direction": "starboard", "degrees": 15.0}
     snaps, log = _run(state, {"p1_sword_1": Command("p1_sword_1", "turn", turn)})
     tl = TimelineBuilder(snaps, log, "p1").build()
-    label = snaps["after_move"].ship("p1_sword_1").label  # type: ignore[union-attr]
-    assert f"{label} turns starboard 15°" in tl.sample(tl.duration).log_lines
+    after = snaps["after_move"].ship("p1_sword_1")
+    assert after is not None and after.heading is not None
+    line = f"{_who(after)} turns 15° starboard, heading {after.heading:.0f}°"
+    assert line in tl.sample(tl.duration).log_lines
 
 
 def test_fully_absorbed_hit_reads_shield_not_minus_zero() -> None:
@@ -407,3 +453,152 @@ def test_fully_absorbed_hit_reads_shield_not_minus_zero() -> None:
         tr.payload["text"] for tr in timeline._impact(1.0, target, 3) if tr.kind == "damage_text"
     ]
     assert texts == ["-3"]
+
+
+# ── mid_move keyframe ───────────────────────────────────────────
+
+
+def _curved_duel() -> tuple[dict[str, BattleSnapshot], Timeline, Vector2D]:
+    """Duel with a synthetic mid_move that bends p1_sword_2's path east."""
+    snaps, log = _run(_duel_state(), _duel_commands())
+    a = snaps["after_fire"].ship("p1_sword_2")
+    b = snaps["after_move"].ship("p1_sword_2")
+    assert a is not None and b is not None
+    bend = Vector2D((a.position.x + b.position.x) / 2 + 6.0, (a.position.y + b.position.y) / 2)
+    snaps = _with_mid(snaps, {"p1_sword_2": bend})
+    return snaps, TimelineBuilder(snaps, log, "p1").build(), bend
+
+
+def _at(tl: Timeline, t: float, ship_id: str) -> Vector2D:
+    return next(s.position for s in tl.sample(t).ships if s.id == ship_id)
+
+
+def test_motion_passes_through_mid_move_at_half_of_move_window() -> None:
+    snaps, tl, bend = _curved_duel()
+    a = snaps["after_fire"].ship("p1_sword_2")
+    b = snaps["after_move"].ship("p1_sword_2")
+    assert a is not None and b is not None
+    m0, m1 = tl.windows["move"]
+
+    half = _at(tl, (m0 + m1) / 2, "p1_sword_2")
+    assert (half.x, half.y) == pytest.approx((bend.x, bend.y))
+    quarter = _at(tl, m0 + (m1 - m0) / 4, "p1_sword_2")
+    assert quarter.x == pytest.approx((a.position.x + bend.x) / 2)
+    assert quarter.y == pytest.approx((a.position.y + bend.y) / 2)
+    late = _at(tl, m0 + 3 * (m1 - m0) / 4, "p1_sword_2")
+    assert late.x == pytest.approx((bend.x + b.position.x) / 2)
+    assert late.y == pytest.approx((bend.y + b.position.y) / 2)
+
+
+def test_without_mid_move_motion_is_one_straight_leg() -> None:
+    snaps, log = _run(_duel_state(), _duel_commands())
+    snaps = _without_mid(snaps)
+    tl = TimelineBuilder(snaps, log, "p1").build()
+    a = snaps["after_fire"].ship("p1_sword_2")
+    b = snaps["after_move"].ship("p1_sword_2")
+    assert a is not None and b is not None
+    m0, m1 = tl.windows["move"]
+    half = _at(tl, (m0 + m1) / 2, "p1_sword_2")
+    assert half.x == pytest.approx((a.position.x + b.position.x) / 2)
+    assert half.y == pytest.approx((a.position.y + b.position.y) / 2)
+
+
+def test_trail_bends_through_mid_move_once_passed() -> None:
+    snaps, tl, bend = _curved_duel()
+    a = snaps["after_fire"].ship("p1_sword_2")
+    end = snaps["end"].ship("p1_sword_2")
+    assert a is not None and end is not None
+    m0, m1 = tl.windows["move"]
+
+    early = tl.sample(m0 + (m1 - m0) / 4).trails["p1_sword_2"]
+    assert len(early) == 2 and early[0] == a.position
+    late = tl.sample(m0 + 3 * (m1 - m0) / 4).trails["p1_sword_2"]
+    assert late[:2] == (a.position, bend) and len(late) == 3
+    assert tl.sample(tl.duration).trails["p1_sword_2"] == (a.position, bend, end.position)
+
+
+# ── Salvo impact timing ─────────────────────────────────────────
+
+
+def test_salvo_impact_lands_at_event_time_and_position() -> None:
+    snaps, log = _run(_duel_state(), _duel_commands())
+    where = Vector2D(1.5, 19.0)
+    for i, ev in enumerate(log.events):
+        if isinstance(ev, turn_resolver.SalvoImpactEvent):
+            log.events[i] = replace(ev, time=0.3, position=where)
+            pid = ev.proj.id
+    tl = TimelineBuilder(snaps, log, "p1").build()
+
+    m0, m1 = tl.windows["move"]
+    (impact,) = [tr for tr in _kinds(tl.tracks, "impact") if tr.t0 >= m0]
+    assert impact.t0 == pytest.approx(m0 + 0.3 * (m1 - m0))
+    assert impact.payload["position"] == where
+    (text,) = [tr for tr in _kinds(tl.tracks, "damage_text") if tr.t0 == impact.t0]
+    assert text.payload["position"] == where
+    assert pid in {p.id for p in tl.sample(impact.t0 - 0.01).projectiles}
+    assert pid not in {p.id for p in tl.sample(impact.t0 + 0.01).projectiles}
+
+
+# ── Full log text ───────────────────────────────────────────────
+
+
+def test_salvo_launch_and_impact_text() -> None:
+    snaps, log = _run(_duel_state(), _duel_commands())
+    tl = TimelineBuilder(snaps, log, "p1").build()
+    launch = next(e for e in log.events if isinstance(e, turn_resolver.SalvoLaunchEvent))
+    impact = next(e for e in log.events if isinstance(e, turn_resolver.SalvoImpactEvent))
+    sword = snaps["after_fire"].ship("p1_sword_1")
+    hulk = snaps["after_move"].ship("ai_hulk_1")
+    assert hulk is not None and hulk.hull_max is not None
+    r = impact.result
+    hull = snaps["after_fire"].ship("ai_hulk_1").hull  # type: ignore[union-attr]
+    assert hull is not None
+
+    lines = tl.sample(tl.duration).log_lines
+    assert f"{_who(sword)} fires {launch.weapon_name} at {_who(hulk)}" in lines
+    assert (
+        f"Salvo hits {_who(hulk)}: {r.raw_hits} hits, {r.shield_blocked} blocked by shields, "
+        f"{r.armor_saves} saved by armour, {r.hull_damage_dealt} hull damage "
+        f"(hull {max(0, hull - r.hull_damage_dealt)}/{hulk.hull_max})"
+    ) in lines
+
+
+def test_destroyed_names_the_last_attacker() -> None:
+    state = _duel_state()
+    snaps, log = _run(state, _duel_commands())
+    log.events.append(
+        turn_resolver.DestroyedEvent(ship=state.ships["ai_hulk_1"], killer_player="p1")
+    )
+    tl = TimelineBuilder(snaps, log, "p1").build()
+    hulk = snaps["end"].ship("ai_hulk_1")
+    sword = snaps["end"].ship("p1_sword_1")
+    assert f"{_who(hulk)} destroyed by {_who(sword)}" in tl.sample(tl.duration).log_lines
+
+
+def test_destroyed_by_hidden_ship_reads_unknown_ship() -> None:
+    state = _hidden_lancer_state()
+    snaps, log = _run(state, {"ai_hulk_2": _aim_hidden()})
+    log.events.append(
+        turn_resolver.DestroyedEvent(ship=state.ships["p1_dauntless"], killer_player=None)
+    )
+    tl = TimelineBuilder(snaps, log, "p1").build()
+    dauntless = snaps["end"].ship("p1_dauntless")
+    assert f"{_who(dauntless)} destroyed by unknown ship" in tl.sample(tl.duration).log_lines
+
+
+def test_lance_miss_text() -> None:
+    state = _duel_state()
+    state.ships["ai_hulk_1"].position = _FAR
+    snaps, log = _run(state, _duel_commands())
+    tl = TimelineBuilder(snaps, log, "p1").build()
+    dauntless = snaps["after_fire"].ship("p1_dauntless")
+    assert f"{_who(dauntless)} lance misses" in tl.sample(tl.duration).log_lines
+
+
+def test_lance_absorbed_by_shields_says_so() -> None:
+    state = _duel_state()
+    state.ships["ai_hulk_1"].shields_current = 1
+    snaps, log = _run(state, _duel_commands())
+    tl = TimelineBuilder(snaps, log, "p1").build()
+    lines = [ln for ln in tl.sample(tl.duration).log_lines if "lance hits" in ln]
+    assert lines and "1 blocked by shields" in lines[0]

@@ -327,66 +327,45 @@ class Ship:
     # but the ship is a sitting duck).
     PIVOT_RATE_MULTIPLIER: float = 1.2
 
-    def apply_drift(self, fraction: float = 0.5) -> tuple[float, float]:
-        """Move the ship along its heading by ``speed × fraction`` GU.
+    def max_turn_this_turn(self, speed_after: float) -> float:
+        """Most degrees this ship can turn in one turn at *speed_after*.
 
-        If there is a *pending_turn* the heading rotates gradually during the
-        drift, producing a curved arc (when moving) or a pivot in place (when
-        stationary).
+        A moving ship turns up to its turn rate; a stationary one pivots
+        faster (``PIVOT_RATE_MULTIPLIER``).  Turns never carry over.
+        """
+        rate = self.effective_turn_rate
+        return rate if speed_after > 0 else rate * self.PIVOT_RATE_MULTIPLIER
+
+    def drift(self, fraction: float, turn: float = 0.0) -> tuple[float, float]:
+        """Move ``speed × fraction`` GU while turning *turn* degrees.
+
+        Moving, the heading rotates gradually along the way, producing a
+        curved arc; stationary, the ship pivots in place.  *turn* is taken
+        off :attr:`pending_turn`.
 
         Returns ``(heading_before, heading_after)`` for display purposes.
         """
         heading_before = self.heading
+        total_distance = max(0.0, self.speed) * fraction
+        steps = 20 if turn and total_distance > 0 else 1
+        turn_per_step = turn / steps
+        dist_per_step = total_distance / steps
+        for _ in range(steps):
+            self.heading = normalize_angle(self.heading + turn_per_step)
+            if dist_per_step > 0:
+                self.position = self.position + heading_to_vector(self.heading) * dist_per_step
 
-        if self.pending_turn != 0.0 and self.speed <= 0:
-            # ── pivot in place (no position change) ──
-            max_pivot = self.effective_turn_rate * fraction * self.PIVOT_RATE_MULTIPLIER
-            sign = 1.0 if self.pending_turn > 0 else -1.0
-            actual = sign * min(abs(self.pending_turn), max_pivot)
-            self.heading = normalize_angle(self.heading + actual)
-            self.pending_turn -= actual
-            if abs(self.pending_turn) < 0.01:
-                self.pending_turn = 0.0
-            return (heading_before, self.heading)
-
-        if self.speed <= 0:
-            return (heading_before, self.heading)
-
-        total_distance = self.speed * fraction
-
-        if self.pending_turn != 0.0:
-            # ── curved drift ──
-            max_turn = self.effective_turn_rate * fraction
-            sign = 1.0 if self.pending_turn > 0 else -1.0
-            actual_turn = sign * min(abs(self.pending_turn), max_turn)
-
-            # Simulate arc with micro-steps
-            steps = 20
-            turn_per_step = actual_turn / steps
-            dist_per_step = total_distance / steps
-
-            for _ in range(steps):
-                self.heading = normalize_angle(self.heading + turn_per_step)
-                direction = heading_to_vector(self.heading)
-                self.position = self.position + direction * dist_per_step
-
-            self.pending_turn -= actual_turn
-            if abs(self.pending_turn) < 0.01:
-                self.pending_turn = 0.0
-        else:
-            # ── straight-line drift ──
-            direction = heading_to_vector(self.heading)
-            self.position = self.position + direction * total_distance
-
+        self.pending_turn -= turn
+        if abs(self.pending_turn) < 0.01:
+            self.pending_turn = 0.0
         return (heading_before, self.heading)
 
     def apply_turn(self, degrees: float) -> None:
-        """Set a pending turn order (positive = starboard, negative = port).
+        """Order a turn for this turn (positive = starboard, negative = port).
 
-        The turn executes gradually during subsequent :meth:`apply_drift`
-        calls at ``turn_rate`` degrees per turn.  A new order **replaces**
-        any prior pending turn.  The full requested angle is stored and
-        resolved over as many turns as needed.
+        The turn executes gradually during this turn's :meth:`drift` calls
+        and never carries over: whatever is left is dropped at end of
+        movement.  A new order **replaces** any prior pending turn.
         """
         self.pending_turn = degrees
 

@@ -160,8 +160,13 @@ class SpacefleetWSClient:
             args = parts[1:]
 
             # Free actions → query
-            if cmd in ("status", "scan", "weapons", "help", "?"):
-                query = "help" if cmd == "?" else cmd
+            if cmd in ("status", "scan", "weapons", "help", "?", "stance"):
+                if cmd == "?":
+                    query = "help"
+                elif cmd == "stance":
+                    query = f"stance {' '.join(args)}".strip()
+                else:
+                    query = cmd
                 await ws.send_str(
                     json.dumps({"type": MSG_QUERY, "ship_id": ship_id, "query": query})
                 )
@@ -171,7 +176,7 @@ class SpacefleetWSClient:
                 self._running = False
                 return
 
-            # Costed actions → command
+            # move (free, server re-prompts) or a costed action → command
             payload = _parse_action(ship_id, cmd, args)
             if payload is None:
                 print("  Unknown command. Type 'help' for options.")
@@ -181,8 +186,51 @@ class SpacefleetWSClient:
             return
 
 
+_MOVE_USAGE = "  Usage: move <speed|-> [port|starboard <degrees>]"
+
+
+def _parse_move(ship_id: str, args: list[str]) -> dict[str, Any] | None:
+    """``move <speed|-> [port|starboard <deg>]`` → free maneuver message.
+
+    Mirrors ``spacefleet.cli.action_parser`` (kept local for PyInstaller).
+    """
+    if not args or len(args) not in (1, 3):
+        print(_MOVE_USAGE)
+        return None
+    try:
+        speed = None if args[0] == "-" else float(args[0])
+        turn = 0.0
+        if len(args) == 3:
+            side = args[1].lower()
+            if side not in ("port", "p", "left", "starboard", "stbd", "s", "right"):
+                print(_MOVE_USAGE)
+                return None
+            degrees = float(args[2])
+            if degrees < 0:
+                print(_MOVE_USAGE)
+                return None
+            turn = -degrees if side in ("port", "p", "left") else degrees
+    except ValueError:
+        print(_MOVE_USAGE)
+        return None
+    return {
+        "type": MSG_COMMAND,
+        "ship_id": ship_id,
+        "action": "move",
+        "args": {},
+        "maneuver": {"speed": speed, "turn": turn},
+    }
+
+
 def _parse_action(ship_id: str, cmd: str, args: list[str]) -> dict[str, Any] | None:
-    """Parse user input into a command message dict."""
+    """Parse user input into a command message dict.
+
+    ``move`` is free (the server holds it and re-prompts); fire, strike or
+    pass then ends the ship's orders.  ahead/stop/turn are maneuver + pass.
+    """
+    if cmd == "move":
+        return _parse_move(ship_id, args)
+
     if cmd == "fire":
         if len(args) < 2:
             print("  Usage: fire <weapon#> <bearing> (relative to prow: 0 ahead, 90 starboard)")
@@ -199,7 +247,11 @@ def _parse_action(ship_id: str, cmd: str, args: list[str]) -> dict[str, Any] | N
             return None
 
     if cmd == "ahead":
-        speed = float(args[0]) if args else None
+        try:
+            speed = float(args[0]) if args else None
+        except ValueError:
+            print("  Usage: ahead [speed]")
+            return None
         return {
             "type": MSG_COMMAND,
             "ship_id": ship_id,
@@ -227,6 +279,17 @@ def _parse_action(ship_id: str, cmd: str, args: list[str]) -> dict[str, Any] | N
 
     if cmd == "pass":
         return {"type": MSG_COMMAND, "ship_id": ship_id, "action": "pass", "args": {}}
+
+    if cmd == "strike":
+        if len(args) < 2:
+            print("  Usage: strike <target_id> <subsystem>")
+            return None
+        return {
+            "type": MSG_COMMAND,
+            "ship_id": ship_id,
+            "action": "strike",
+            "args": {"target": args[0], "subsystem": args[1]},
+        }
 
     return None
 

@@ -432,7 +432,7 @@ def _cell_char(tmap: TacticalMap, pos: Vector2D) -> str:
     return tmap.render_lines_text()[row].plain[col]
 
 
-def _trail_frame(trails: dict[str, tuple[Vector2D, Vector2D]]) -> Frame:
+def _trail_frame(trails: dict[str, tuple[Vector2D, ...]]) -> Frame:
     return Frame(0.5, SHIPS, (), (), (), {}, trails=trails)
 
 
@@ -445,6 +445,18 @@ def test_trail_draws_braille_line_from_move_start_to_current() -> None:
         tmap.show_frame(_trail_frame({"p1": (start, now)}))
         assert "⠁" <= _cell_char(tmap, midpoint) <= "⣿"
         assert _cell_char(tmap, now) == heading_glyph(90.0)  # glyph drawn over the trail
+
+    _run(scenario)
+
+
+def test_trail_bends_through_mid_move_point() -> None:
+    async def scenario(app: MapApp, tmap: TacticalMap, pilot: Pilot[None]) -> None:
+        start, mid, now = Vector2D(-20, 30), Vector2D(-20, 0), Vector2D(0, 0)
+        corner_leg = Vector2D(-20, 15)  # on start->mid, far from the start->now chord
+        tmap.show_frame(_trail_frame({"p1": (start, now)}))
+        assert _cell_char(tmap, corner_leg) in (" ", "⠀")
+        tmap.show_frame(_trail_frame({"p1": (start, mid, now)}))
+        assert "⠁" <= _cell_char(tmap, corner_leg) <= "⣿"
 
     _run(scenario)
 

@@ -1,4 +1,4 @@
-"""turn_resolver delegates the movement section to resolve_movement_phase."""
+"""turn_resolver delegates movement orders to the movement phase module."""
 
 from __future__ import annotations
 
@@ -9,10 +9,12 @@ from spacefleet.net.commands import Command
 from spacefleet.net.game_state import GameState
 
 
-def test_turn_resolver_imports_resolve_movement_phase() -> None:
+def test_turn_resolver_imports_movement_phase_orders() -> None:
+    # New rule: orders apply once via apply_move_orders, then the resolver
+    # runs two movement halves with salvos (core.game_loop.advance_half).
     src = inspect.getsource(turn_resolver)
     assert "from spacefleet.phases.movement_phase import" in src
-    assert "resolve_movement_phase" in src
+    assert "apply_move_orders" in src
 
 
 def test_ahead_within_max_does_not_spend_combustion() -> None:

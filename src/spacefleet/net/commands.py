@@ -19,12 +19,26 @@ if TYPE_CHECKING:
 
 
 @dataclass
+class Maneuver:
+    """Speed and heading change for one turn; free alongside the ship's action."""
+
+    speed: float | None = None  # target speed; None keeps the current speed
+    turn: float = 0.0  # degrees this turn; + starboard, - port; never carries over
+
+
+@dataclass
 class Command:
-    """A validated action for a single ship."""
+    """A validated order for a single ship: one action plus an optional maneuver.
+
+    ``action`` is "fire" | "strike" | "pass".  The legacy movement actions
+    "ahead" | "stop" | "turn" are still accepted on the wire and are
+    normalised to a maneuver plus "pass" (see group E3).
+    """
 
     ship_id: str
-    action: str  # "fire" | "ahead" | "stop" | "turn" | "pass"
+    action: str
     args: dict[str, Any] = field(default_factory=dict)
+    maneuver: Maneuver | None = None
 
 
 def validate_command(
@@ -55,34 +69,153 @@ def validate_command(
         return "Command args must be an object."
     args: dict[str, Any] = args_raw
 
-    # Ownership check
-    if owner_lookup.get(ship_id) != player_id:
-        return f"You do not control ship '{ship_id}'."
+    denied = _check_control(ship_id, ship, player_id, owner_lookup)
+    if denied is not None:
+        return denied
 
-    # Ship alive?
-    if not ship.alive:
-        return f"{ship.name} is destroyed."
+    maneuver_raw = msg.get("maneuver")
+    requested = _parse_maneuver(maneuver_raw, ship) if maneuver_raw is not None else None
+    if isinstance(requested, str):
+        return requested
+
+    # ── Legacy movement actions: a maneuver plus "pass" ──
+
+    if action in _LEGACY_MOVES:
+        legacy = _legacy_maneuver(action, args, ship, requested)
+        if isinstance(legacy, str):
+            return legacy
+        return Command(ship_id=ship_id, action="pass", args={}, maneuver=legacy)
 
     # ── Validate by action type ──
 
+    result: Command | str
     if action == "fire":
         if "shots" in args:
             if "slot" in args or "bearing" in args:
                 return "fire cannot combine 'shots' with 'slot' or 'bearing'."
-            return _validate_fire_shots(ship_id, args["shots"], ship)
-        return _validate_fire(ship_id, args, ship)
-    if action == "ahead":
-        return _validate_ahead(ship_id, args, ship)
-    if action == "stop":
-        return Command(ship_id=ship_id, action="stop", args={})
-    if action == "turn":
-        return _validate_turn(ship_id, args, ship)
-    if action == "pass":
-        return Command(ship_id=ship_id, action="pass", args={})
-    if action == "strike":
-        return _validate_strike(ship_id, args, ship)
+            result = _validate_fire_shots(ship_id, args["shots"], ship)
+        else:
+            result = _validate_fire(ship_id, args, ship)
+    elif action == "pass":
+        result = Command(ship_id=ship_id, action="pass", args={})
+    elif action == "strike":
+        result = _validate_strike(ship_id, args, ship)
+    elif action == "move":
+        return "move is a free maneuver; follow it with fire, strike or pass."
+    else:
+        return f"Unknown action: '{action}'"
 
-    return f"Unknown action: '{action}'"
+    if isinstance(result, Command):
+        result.maneuver = requested
+    return result
+
+
+def validate_move(
+    msg: dict[str, Any],
+    ship: Ship,
+    player_id: str,
+    owner_lookup: dict[str, str],
+) -> Maneuver | str:
+    """Validate a free ``move`` message and return its :class:`Maneuver`.
+
+    Wire shape: ``{"action": "move", "ship_id": ..., "maneuver": {"speed":
+    number | null, "turn": number}}``.  The maneuver rides on the ship's
+    next costed command (see ``GameRoom``).
+    """
+    denied = _check_control(msg.get("ship_id", ""), ship, player_id, owner_lookup)
+    if denied is not None:
+        return denied
+    maneuver_raw = msg.get("maneuver")
+    if maneuver_raw is None:
+        return "move requires a 'maneuver' object."
+    return _parse_maneuver(maneuver_raw, ship)
+
+
+def _check_control(
+    ship_id: str,
+    ship: Ship,
+    player_id: str,
+    owner_lookup: dict[str, str],
+) -> str | None:
+    if owner_lookup.get(ship_id) != player_id:
+        return f"You do not control ship '{ship_id}'."
+    if not ship.alive:
+        return f"{ship.name} is destroyed."
+    return None
+
+
+# ── Maneuver ─────────────────────────────────────────────────
+
+_LEGACY_MOVES = ("ahead", "stop", "turn")
+
+
+def _maneuver_number(raw: object, label: str) -> float | str:
+    if isinstance(raw, bool) or not isinstance(raw, (int, float)):
+        return f"Invalid maneuver {label}: {raw!r}"
+    value = float(raw)
+    if not math.isfinite(value):
+        return f"Invalid maneuver {label}: value must be finite."
+    return value
+
+
+def _parse_maneuver(raw: object, ship: Ship) -> Maneuver | str:
+    """Validate a wire ``{"speed": number | null, "turn": number}`` object."""
+    if not isinstance(raw, dict):
+        return "Command maneuver must be an object."
+
+    speed: float | None = None
+    if raw.get("speed") is not None:
+        parsed = _maneuver_number(raw["speed"], "speed")
+        if isinstance(parsed, str):
+            return parsed
+        if parsed < 0:
+            return "Maneuver speed must be 0 or more."
+        # Over-burn above the damaged cap is allowed up to the hull speed,
+        # as with the legacy ``ahead``; combustion pays for it.
+        speed = min(ship.speed_max, parsed)
+
+    turn = _maneuver_number(raw.get("turn", 0.0), "turn")
+    if isinstance(turn, str):
+        return turn
+    return _check_turn_limit(Maneuver(speed=speed, turn=turn), ship)
+
+
+def _check_turn_limit(maneuver: Maneuver, ship: Ship) -> Maneuver | str:
+    speed_after = ship.speed if maneuver.speed is None else maneuver.speed
+    limit = ship.max_turn_this_turn(speed_after)
+    if abs(maneuver.turn) > limit + 1e-9:
+        return (
+            f"Turn {abs(maneuver.turn):g}\u00b0 exceeds this ship's limit of "
+            f"{limit:g}\u00b0 this turn."
+        )
+    return maneuver
+
+
+def _legacy_maneuver(
+    action: str,
+    args: dict[str, Any],
+    ship: Ship,
+    base: Maneuver | None,
+) -> Maneuver | str:
+    """Turn a legacy ``ahead``/``stop``/``turn`` into a maneuver.
+
+    The legacy order sets its own field; the other one comes from *base*
+    (an explicit maneuver sent alongside), then the turn limit is checked.
+    """
+    maneuver = Maneuver() if base is None else Maneuver(base.speed, base.turn)
+    if action == "ahead":
+        speed = _validate_ahead(args, ship)
+        if isinstance(speed, str):
+            return speed
+        maneuver.speed = speed
+    elif action == "stop":
+        maneuver.speed = 0.0
+    else:
+        turn = _validate_turn(args)
+        if isinstance(turn, str):
+            return turn
+        maneuver.turn = turn
+    return _check_turn_limit(maneuver, ship)
 
 
 # ── Per-action validators ────────────────────────────────────
@@ -173,39 +306,25 @@ def _validate_fire_shots(
     return Command(ship_id=ship_id, action="fire", args={"shots": shots})
 
 
-def _validate_ahead(
-    ship_id: str,
-    args: dict[str, Any],
-    ship: Ship,
-) -> Command | str:
+def _validate_ahead(args: dict[str, Any], ship: Ship) -> float | str:
+    """Target speed of a legacy ``ahead``; no arg means full speed."""
     speed_raw = args.get("speed")
 
     if speed_raw is None:
-        # No arg → full speed
-        return Command(
-            ship_id=ship_id,
-            action="ahead",
-            args={"speed": ship.speed_max},
-        )
+        return ship.speed_max
 
     try:
         speed = float(speed_raw)
     except (ValueError, TypeError):
         return f"Invalid speed: {speed_raw}"
+    if not math.isfinite(speed):
+        return f"Invalid speed: {speed_raw}"
 
-    speed = max(0.0, min(ship.speed_max, speed))
-    return Command(
-        ship_id=ship_id,
-        action="ahead",
-        args={"speed": speed},
-    )
+    return max(0.0, min(ship.speed_max, speed))
 
 
-def _validate_turn(
-    ship_id: str,
-    args: dict[str, Any],
-    ship: Ship,
-) -> Command | str:
+def _validate_turn(args: dict[str, Any]) -> float | str:
+    """Signed degrees of a legacy ``turn`` (+ starboard, - port)."""
     direction = args.get("direction", "")
     degrees_raw = args.get("degrees")
 
@@ -219,17 +338,13 @@ def _validate_turn(
         degrees = float(degrees_raw)
     except (ValueError, TypeError):
         return f"Invalid degrees: {degrees_raw}"
+    if not math.isfinite(degrees):
+        return f"Invalid degrees: {degrees_raw}"
 
     if degrees < 0:
         return "Degrees must be positive. Use direction for port/starboard."
 
-    direction_label = "port" if direction in ("port", "p", "left") else "starboard"
-
-    return Command(
-        ship_id=ship_id,
-        action="turn",
-        args={"direction": direction_label, "degrees": degrees},
-    )
+    return -degrees if direction in ("port", "p", "left") else degrees
 
 
 def _validate_strike(

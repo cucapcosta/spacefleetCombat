@@ -6,6 +6,11 @@ window are staggered 0.15 s apart; a window that cannot fit its events
 stretches and shifts the later ones.  ``Timeline.sample(t)`` is a pure
 function of ``t`` and ``sample(duration)`` matches the ``end`` snapshot.
 
+Movement runs at constant speed through ``after_fire -> mid_move ->
+after_move`` (each half of the move window is one leg; without a
+``mid_move`` snapshot there is a single leg), so a salvo impact placed at
+its turn fraction (``SalvoImpactEvent.time``) meets the ship where it hit.
+
 Fog of war: names and positions come only from the snapshots.  An event
 whose origin is hidden but whose target is visible yields just the impact
 plus an ``incoming_fire`` marker (bearing rounded to 45 degrees); an event
@@ -47,7 +52,7 @@ from spacefleet.phases.command_phase import (
 )
 from spacefleet.spatial.geometry import absolute_bearing, bearing_from_to, point_to_segment_distance
 from spacefleet.tui.model.snapshot import PHASES
-from spacefleet.tui.model.tween import ease_in_out, lerp, lerp_angle, lerp_vec
+from spacefleet.tui.model.tween import lerp, lerp_angle, lerp_vec
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -84,6 +89,10 @@ _VIEW_ORDER = {
     "move": ("after_move", "after_fire"),
     "end": ("end", "after_move", "after_fire", "start"),
 }
+
+
+# Snapshot whose hull values seed the running hull tally used in log text.
+_HULL_RESYNC = {"move": "after_fire", "end": "after_move"}
 
 
 def _default_windows() -> dict[str, tuple[float, float]]:
@@ -160,8 +169,9 @@ class Frame:
     log_lines: tuple[str, ...]  # log entries whose time has passed, in order
     bars: dict[str, Bars]  # player ship id -> interpolated bars
     incoming: tuple[tuple[str, float], ...] = ()  # (target ship id, absolute bearing)
-    # ship id -> (move-start position, current position) for visible ships that moved
-    trails: dict[str, tuple[Vector2D, Vector2D]] = field(default_factory=dict)
+    # ship id -> polyline (move start, mid-move once passed, current position)
+    # for visible ships that moved
+    trails: dict[str, tuple[Vector2D, ...]] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -239,19 +249,31 @@ class Timeline:
             ships, projectiles = self._snap("end").ships, self._snap("end").projectiles
         return self._with_deaths(ships, t), projectiles
 
-    def _trails(
-        self, t: float, ships: tuple[ShipView, ...]
-    ) -> dict[str, tuple[Vector2D, Vector2D]]:
-        if t < self.windows["move"][0]:
+    def _legs(self) -> tuple[BattleSnapshot, ...]:
+        """Keyframes of the move window: after_fire, [mid_move,] after_move."""
+        mid = self.snapshots.get("mid_move")
+        a, b = self._snap("after_fire"), self._snap("after_move")
+        return (a, b) if mid is None else (a, mid, b)
+
+    def _trails(self, t: float, ships: tuple[ShipView, ...]) -> dict[str, tuple[Vector2D, ...]]:
+        m0, m1 = self.windows["move"]
+        if t < m0:
             return {}
         b_by = {s.id: s for s in self._snap("after_move").ships}
+        mid = self.snapshots.get("mid_move")
+        mid_by = {s.id: s for s in mid.ships} if mid is not None and t >= lerp(m0, m1, 0.5) else {}
         shown = {s.id: s.position for s in ships}
-        trails: dict[str, tuple[Vector2D, Vector2D]] = {}
+        trails: dict[str, tuple[Vector2D, ...]] = {}
         for sa in self._snap("after_fire").ships:
             sb = b_by.get(sa.id)
-            if sb is None or sa.position.distance_to(sb.position) <= 1e-6:
+            if sb is None:
                 continue
-            trails[sa.id] = (sa.position, shown.get(sa.id, sb.position))
+            sm = mid_by.get(sa.id)
+            points = [sa.position] if sm is None else [sa.position, sm.position]
+            points.append(shown.get(sa.id, sb.position))
+            if all(p.distance_to(sa.position) <= 1e-6 for p in (*points, sb.position)):
+                continue
+            trails[sa.id] = tuple(points)
         return trails
 
     def _with_deaths(self, ships: tuple[ShipView, ...], t: float) -> tuple[ShipView, ...]:
@@ -264,27 +286,9 @@ class Timeline:
         return tuple(out)
 
     def _moving_ships(self, u: float) -> tuple[ShipView, ...]:
-        a, b = self._snap("after_fire"), self._snap("after_move")
-        e = ease_in_out(u)
-        b_by = {s.id: s for s in b.ships}
-        out: list[ShipView] = []
-        for sa in a.ships:
-            sb = b_by.get(sa.id)
-            if sb is None:
-                if u < 0.5:  # lost from sensors mid-move
-                    out.append(sa)
-                continue
-            base = sa if u < 0.5 else sb
-            heading = base.heading
-            if sa.heading is not None and sb.heading is not None:
-                heading = lerp_angle(sa.heading, sb.heading, e)
-            out.append(
-                replace(base, position=lerp_vec(sa.position, sb.position, e), heading=heading)
-            )
-        a_ids = {s.id for s in a.ships}
-        if u >= 0.5:
-            out.extend(s for s in b.ships if s.id not in a_ids)
-        return tuple(out)
+        legs = self._legs()
+        k = min(int(u * (len(legs) - 1)), len(legs) - 2)
+        return _lerp_ships(legs[k], legs[k + 1], u * (len(legs) - 1) - k)
 
     def _moving_projectiles(self, t: float, u: float) -> tuple[ProjectileView, ...]:
         a, b = self._snap("after_fire"), self._snap("after_move")
@@ -350,6 +354,27 @@ def _has_stats(view: ShipView) -> bool:
     return all(getattr(view, stat) is not None for stat in _STATS)
 
 
+def _lerp_ships(a: BattleSnapshot, b: BattleSnapshot, u: float) -> tuple[ShipView, ...]:
+    """Ships of one move leg at ``u`` (0..1), at constant speed."""
+    b_by = {s.id: s for s in b.ships}
+    out: list[ShipView] = []
+    for sa in a.ships:
+        sb = b_by.get(sa.id)
+        if sb is None:
+            if u < 0.5:  # lost from sensors mid-move
+                out.append(sa)
+            continue
+        base = sa if u < 0.5 else sb
+        heading = base.heading
+        if sa.heading is not None and sb.heading is not None:
+            heading = lerp_angle(sa.heading, sb.heading, u)
+        out.append(replace(base, position=lerp_vec(sa.position, sb.position, u), heading=heading))
+    a_ids = {s.id for s in a.ships}
+    if u >= 0.5:
+        out.extend(s for s in b.ships if s.id not in a_ids)
+    return tuple(out)
+
+
 # ═══════════════════════════════════════════════════════════════
 # Builder
 # ═══════════════════════════════════════════════════════════════
@@ -412,22 +437,35 @@ class TimelineBuilder:
     def build(self) -> Timeline:
         self._fire_heading: dict[str, float] = {}
         self._paths: dict[str, tuple[Vector2D, Vector2D]] = {}
+        self._salvo_target: dict[str, str] = {}  # projectile id -> ship it hits this turn
+        self._maneuvers: dict[str, list[SpeedChangeEvent | TurnOrderEvent]] = {}
+        self._maneuver_logged: set[str] = set()
+        self._last_attacker: dict[str, str] = {}  # target id -> attacker id, in log order
         expired: set[str] = set()
         for ev in self.log.events:
             if isinstance(ev, DriftEvent):
                 self._fire_heading.setdefault(ev.ship.id, ev.heading_before)
             elif isinstance(ev, SalvoMoveEvent):
-                self._paths[ev.proj.id] = (_copy(ev.old_pos), _copy(ev.new_pos))
+                first = self._paths.get(ev.proj.id)
+                start = first[0] if first is not None else _copy(ev.old_pos)
+                self._paths[ev.proj.id] = (start, _copy(ev.new_pos))
             elif isinstance(ev, SalvoExpiredEvent):
                 expired.add(ev.proj.id)
+            elif isinstance(ev, SalvoImpactEvent):
+                self._salvo_target.setdefault(ev.proj.id, ev.target.id)
+            elif isinstance(ev, SpeedChangeEvent | TurnOrderEvent):
+                self._maneuvers.setdefault(ev.ship.id, []).append(ev)
         self._launched = self._new_projectiles_by_attacker()
 
         items: list[_Item] = []
         window = "command"
+        self._hull = self._hulls("start")
         for ev in self.log.events:
             candidate = _min_window(ev)
             if WINDOWS.index(candidate) > WINDOWS.index(window):
                 window = candidate
+                if window in _HULL_RESYNC:
+                    self._hull = self._hulls(_HULL_RESYNC[window])
             item = self._item(ev, window)
             if item is not None:
                 items.append(item)
@@ -581,6 +619,18 @@ class TimelineBuilder:
                 return view if view.detection.value >= level.value else None
         return None
 
+    def _hulls(self, phase: str) -> dict[str, int]:
+        return {s.id: s.hull for s in self._snap(phase).ships if s.hull is not None}
+
+    def _hull_after(self, target: ShipView, damage: int) -> str:
+        """`` (hull x/y)`` after ``damage`` lands, or "" when stats are hidden."""
+        hull = self._hull.get(target.id)
+        if hull is None or target.hull_max is None:
+            return ""
+        hull = max(0, hull - damage)
+        self._hull[target.id] = hull
+        return f" (hull {hull}/{target.hull_max})"
+
     def _new_projectiles_by_attacker(self) -> dict[str, list[str]]:
         known = {p.id for p in self._snap("start").projectiles}
         by_attacker: dict[str, list[str]] = {}
@@ -618,12 +668,8 @@ class TimelineBuilder:
             return self._morale(ev, window)
         if isinstance(ev, StanceChangeEvent):
             return self._stance(ev, window)
-        if isinstance(ev, SpeedChangeEvent):
-            return self._speed(ev, window)
-        if isinstance(ev, TurnOrderEvent):
-            return self._turn(ev, window)
-        if isinstance(ev, DriftEvent):
-            return self._drift(ev, window)
+        if isinstance(ev, SpeedChangeEvent | TurnOrderEvent | DriftEvent):
+            return self._maneuver(ev, window)
         return None
 
     def _ability(
@@ -655,7 +701,8 @@ class TimelineBuilder:
         target = self._view(window, ev.ship_id)
         if target is None:
             return None
-        text = f"{target.label} takes {ev.hull_damage} dmg"
+        hull = self._hull_after(target, ev.hull_damage)
+        text = f"{_who(target)} takes {ev.hull_damage} hull damage{hull}"
 
         def make(t: float) -> list[Track]:
             return [*_impact(t, target, ev.hull_damage), _log(t, text)]
@@ -666,7 +713,7 @@ class TimelineBuilder:
         target = self._view(window, ev.ship_id, DetectionLevel.IDENTIFIED)
         if target is None:
             return None
-        text = f"{target.label} repaired +{ev.amount}"
+        text = f"{_who(target)} repaired +{ev.amount}{self._hull_after(target, -ev.amount)}"
         return _Item(window, True, lambda t: [_log(t, text)], touches=(ev.ship_id,))
 
     def _lance(self, ev: LanceFireEvent, window: str) -> _Item | None:
@@ -676,21 +723,25 @@ class TimelineBuilder:
         target = self._view(window, target_id)
         if attacker is None and target is None:
             return None
+        if target_id is not None:
+            self._last_attacker[target_id] = ev.ship.id
         damage = result.hull_damage_dealt if result is not None else 0
         heading = attacker.heading if attacker is not None else None
         if heading is None:
             heading = self._fire_heading.get(ev.ship.id, ev.ship.heading)
         bearing = absolute_bearing(heading, ev.bearing)
 
-        if attacker is None:
-            assert target is not None
-            text = f"{target.label} hit by unseen lance: {damage} dmg"
-        elif target is not None:
-            text = f"{attacker.label} lance → {target.label}: {damage} dmg"
-        elif target_id is not None:
-            text = f"{attacker.label} lance hits an unseen target"
+        if target_id is None:
+            text = f"{_who(attacker)} lance misses"
+        elif target is None:
+            text = f"{_who(attacker)} lance hits {_who(None)}"
         else:
-            text = f"{attacker.label} lance misses"
+            hull = self._hull_after(target, damage)
+            blocked = result.shield_blocked if result is not None else 0
+            shields = f"{blocked} blocked by shields, " if blocked else ""
+            text = (
+                f"{_who(attacker)} lance hits {_who(target)}: {shields}{damage} hull damage{hull}"
+            )
 
         def make(t: float) -> list[Track]:
             tracks = [_log(t, text)]
@@ -735,7 +786,10 @@ class TimelineBuilder:
             "position": attacker.position,
             "bearing": bearing,
         }
-        text = f"{attacker.label} fires {ev.weapon_name}"
+        text = f"{_who(attacker)} fires {ev.weapon_name}"
+        target_id = self._salvo_target.get(pid) if pid is not None else None
+        if target_id is not None:
+            text += f" at {_who(self._view(window, target_id))}"
 
         def make(t: float) -> list[Track]:
             return [Track(t, t + _BURST, "salvo_launch", payload), _log(t, text)]
@@ -747,14 +801,11 @@ class TimelineBuilder:
         target = self._view(window, ev.target.id)
         if attacker is None and target is None:
             return None
+        self._last_attacker[ev.target.id] = ev.attacker.id
         crew = ev.result.total_crew_damage
-        if attacker is None:
-            assert target is not None
-            text = f"{target.label} boarded by unseen ship"
-        elif target is None:
-            text = f"{attacker.label} launches a boarding strike"
-        else:
-            text = f"{attacker.label} boards {target.label}: {crew} crew dmg"
+        text = f"{_who(attacker)} boards {_who(target)}"
+        if target is not None:
+            text += f": {crew} crew damage"
 
         def make(t: float) -> list[Track]:
             tracks = [_log(t, text)]
@@ -784,24 +835,29 @@ class TimelineBuilder:
         target = self._view(window, ev.target.id)
         if attacker is None and target is None:
             return None
-        damage = ev.result.hull_damage_dealt
+        self._last_attacker[ev.target.id] = proj.attacker_id
+        r = ev.result
+        damage = r.hull_damage_dealt
         frac = 0.5
         path = self._paths.get(proj.id)
-        if path is not None and target is not None:
+        if ev.time > 0.0:
+            frac = min(1.0, ev.time)
+        elif path is not None and target is not None:
             frac = _fraction_along(target.position, *path)
 
         if target is None:
-            assert attacker is not None
-            text = f"Salvo from {attacker.label} hits an unseen target"
-        elif attacker is None:
-            text = f"Salvo → {target.label}: {damage} dmg"
+            text = f"Salvo hits {_who(None)}"
         else:
-            text = f"Salvo from {attacker.label} → {target.label}: {damage} dmg"
+            text = (
+                f"Salvo hits {_who(target)}: {r.raw_hits} hits, "
+                f"{r.shield_blocked} blocked by shields, {r.armor_saves} saved by armour, "
+                f"{damage} hull damage{self._hull_after(target, damage)}"
+            )
 
         def make(t: float) -> list[Track]:
             tracks = [_log(t, text)]
             if target is not None:
-                tracks.extend(_impact(t, target, damage))
+                tracks.extend(_impact(t, target, damage, ev.position))
                 if attacker is None:
                     tracks.append(_incoming(t, target, proj.bearing + 180.0))
             return tracks
@@ -816,8 +872,10 @@ class TimelineBuilder:
         if ev.shields_regen:
             parts.append(f"shields +{ev.shields_regen}")
         if ev.fire_damage:
-            parts.append(f"fire {ev.fire_damage} dmg")
-        text = f"{view.label} " + ", ".join(parts)
+            parts.append(
+                f"fire {ev.fire_damage} hull damage{self._hull_after(view, ev.fire_damage)}"
+            )
+        text = f"{_who(view)} " + ", ".join(parts)
 
         def make(t: float) -> list[Track]:
             tracks = [_log(t, text)]
@@ -839,7 +897,11 @@ class TimelineBuilder:
         view = self._view(window, ev.ship.id, order=order)
         if view is None:
             return None
-        text = f"{view.label} destroyed"
+        text = f"{_who(view)} destroyed"
+        killer_id = self._last_attacker.get(ev.ship.id)
+        if killer_id is not None:
+            killer = self._view(window, killer_id, DetectionLevel.CONTACT, order=order)
+            text += f" by {_who(killer)}"
         payload = {"ship_id": view.id, "position": view.position}
 
         def make(t: float) -> list[Track]:
@@ -851,7 +913,7 @@ class TimelineBuilder:
         view = self._view(window, ev.ship.id, DetectionLevel.IDENTIFIED)
         if view is None:
             return None
-        text = f"{view.label} critical: {ev.result.name}"
+        text = f"{_who(view)} critical: {ev.result.name}"
         payload = {"ship_id": view.id, "position": view.position, "name": ev.result.name}
 
         def make(t: float) -> list[Track]:
@@ -864,7 +926,7 @@ class TimelineBuilder:
         if view is None:
             return None
         source = f" ({ev.source})" if ev.source else ""
-        text = f"{view.label} morale {ev.old_morale}→{ev.new_morale}{source}"
+        text = f"{_who(view)} morale {ev.old_morale} → {ev.new_morale}{source}"
         payload = {
             "ship_id": view.id,
             "position": view.position,
@@ -884,7 +946,7 @@ class TimelineBuilder:
         if view is None:
             return None
         reason = f" ({ev.reason})" if ev.reason else ""
-        text = f"{view.label} stance {ev.old_stance.value} → {ev.new_stance.value}{reason}"
+        text = f"{_who(view)} stance {ev.old_stance.value} → {ev.new_stance.value}{reason}"
         payload = {
             "ship_id": view.id,
             "position": view.position,
@@ -897,30 +959,42 @@ class TimelineBuilder:
 
         return _Item(window, False, make)
 
-    def _speed(self, ev: SpeedChangeEvent, window: str) -> _Item | None:
-        view = self._view(window, ev.ship.id, DetectionLevel.CONTACT)
-        if view is None:
-            return None
-        text = f"{view.label} speed {ev.old_speed:g} → {ev.new_speed:g} GU/turn"
-        return _Item(window, True, lambda t: [_log(t, text)])
+    def _maneuver(
+        self, ev: SpeedChangeEvent | TurnOrderEvent | DriftEvent, window: str
+    ) -> _Item | None:
+        """One line per visible ship: speed change, turn, distance and heading.
 
-    def _turn(self, ev: TurnOrderEvent, window: str) -> _Item | None:
-        view = self._view(window, ev.ship.id, DetectionLevel.CONTACT)
-        if view is None:
+        Emitted at the ship's first movement event; later ones are folded in.
+        """
+        sid = ev.ship.id
+        if sid in self._maneuver_logged:
             return None
-        text = f"{view.label} turns {ev.direction} {abs(ev.degrees):g}°"
-        return _Item(window, True, lambda t: [_log(t, text)])
-
-    def _drift(self, ev: DriftEvent, window: str) -> _Item | None:
-        before = self._view(window, ev.ship.id, DetectionLevel.CONTACT, order=("after_fire",))
-        after = self._view(window, ev.ship.id, DetectionLevel.CONTACT, order=("after_move",))
+        self._maneuver_logged.add(sid)
+        before = self._view(window, sid, DetectionLevel.CONTACT, order=("after_fire",))
+        after = self._view(window, sid, DetectionLevel.CONTACT, order=("after_move",))
         if before is None or after is None:
             return None
-        distance = before.position.distance_to(after.position)
-        if distance < 0.05 and before.heading == after.heading:
+        parts: list[str] = []
+        turned = False
+        for order in self._maneuvers.get(sid, []):
+            if isinstance(order, SpeedChangeEvent) and order.old_speed != order.new_speed:
+                parts.append(f"speed {order.old_speed:g} → {order.new_speed:g}")
+            elif isinstance(order, TurnOrderEvent) and order.degrees:
+                turned = True
+                parts.append(f"turns {abs(order.degrees):g}° {order.direction}")
+        mid = self._view(window, sid, DetectionLevel.CONTACT, order=("mid_move",))
+        points = [before.position, after.position]
+        if mid is not None:
+            points.insert(1, mid.position)
+        distance = sum(p.distance_to(q) for p, q in zip(points, points[1:], strict=False))
+        moved = distance >= 0.05
+        if moved:
+            parts.append(f"moved {distance:.1f} GU")
+        if after.heading is not None and (moved or turned or before.heading != after.heading):
+            parts.append(f"heading {after.heading:.0f}°")
+        if not parts:
             return None
-        heading = f", heading {after.heading:.0f}°" if after.heading is not None else ""
-        text = f"{after.label} moved {distance:.1f} GU{heading}"
+        text = f"{_who(after)} " + ", ".join(parts)
         return _Item(window, True, lambda t: [_log(t, text)])
 
 
@@ -936,10 +1010,24 @@ def _damage_text(t: float, target: ShipView, text: str) -> Track:
     return Track(t, t + _DAMAGE_TEXT, "damage_text", payload)
 
 
-def _impact(t: float, target: ShipView, damage: int) -> list[Track]:
-    payload = {"target_id": target.id, "position": target.position, "damage": damage}
+def _who(view: ShipView | None) -> str:
+    """Full name and map label as the observer knows the ship."""
+    if view is None or view.label == "?":
+        return "unknown ship" if view is None else "unknown ship [?]"
+    return f"{view.name} [{view.label}]"
+
+
+def _impact(
+    t: float, target: ShipView, damage: int, position: Vector2D | None = None
+) -> list[Track]:
+    where = target.position if position is None else position
+    payload = {"target_id": target.id, "position": where, "damage": damage}
     text = f"-{damage}" if damage else "shield"  # 0 = fully absorbed by shields
-    return [Track(t, t + _IMPACT, "impact", payload), _damage_text(t, target, text)]
+    texts = {"target_id": target.id, "position": where, "text": text}
+    return [
+        Track(t, t + _IMPACT, "impact", payload),
+        Track(t, t + _DAMAGE_TEXT, "damage_text", texts),
+    ]
 
 
 def _incoming(t: float, target: ShipView, bearing: float) -> Track:

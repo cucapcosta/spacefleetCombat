@@ -7,6 +7,7 @@ handed in; the map converts world units to dots through its ``Camera``.
 
 from __future__ import annotations
 
+import itertools
 import math
 import zlib
 from collections.abc import Iterable, Sequence
@@ -134,7 +135,7 @@ class TacticalMap(Widget, can_focus=True):
         self._projectiles: tuple[ProjectileView, ...] = ()
         self._effects: tuple[Effect, ...] = ()
         self._incoming: tuple[tuple[str, float], ...] = ()
-        self._trails: dict[str, tuple[Vector2D, Vector2D]] = {}
+        self._trails: dict[str, tuple[Vector2D, ...]] = {}
         self._frame_t: float | None = None
         self._tick = 0
         self._fitted = False
@@ -144,7 +145,7 @@ class TacticalMap(Widget, can_focus=True):
             tuple[
                 list[ArcSpec],
                 tuple[float, float, float] | None,
-                tuple[float, Vector2D] | None,
+                tuple[float, Vector2D] | tuple[float, Vector2D, Vector2D] | None,
             ],
         ] = {}
         self._preview: tuple[str, Any] | None = None
@@ -190,9 +191,13 @@ class TacticalMap(Widget, can_focus=True):
         ship_id: str,
         arcs: Sequence[ArcSpec] = (),
         sensor: tuple[float, float, float] | None = None,
-        drift: tuple[float, Vector2D] | None = None,
+        drift: tuple[float, Vector2D] | tuple[float, Vector2D, Vector2D] | None = None,
     ) -> None:
-        """Arcs use absolute compass degrees; ranges and radii are in GU."""
+        """Arcs use absolute compass degrees; ranges and radii are in GU.
+
+        *drift* is ``(heading, end)`` or ``(heading, end, mid)``; with *mid*
+        the predicted course is drawn through the mid-turn point.
+        """
         self._overlay_data[ship_id] = (list(arcs), sensor, drift)
         self.refresh()
 
@@ -390,13 +395,14 @@ class TacticalMap(Widget, can_focus=True):
                 canvas.put_text(col + 1, row, ship.label, "dim" if not ship.alive else normal)
 
     def _draw_trails(self, canvas: BrailleCanvas) -> None:
-        """Dim line from each moving ship's start to where it is now."""
-        for ship_id, (start, now) in self._trails.items():
+        """Dim polyline from each moving ship's start, through mid-move, to now."""
+        for ship_id, points in self._trails.items():
             ship = self.ship(ship_id)
             if ship is None:
                 continue
             normal, _bright = _FACTION_STYLE.get(ship.faction, ("white", "bold white"))
-            canvas.line(*self._dot(start), *self._dot(now), f"dim {normal}")
+            for a, b in itertools.pairwise(points):
+                canvas.line(*self._dot(a), *self._dot(b), f"dim {normal}")
 
     def _draw_projectiles(self, canvas: BrailleCanvas) -> None:
         for proj in self._projectiles:
@@ -488,11 +494,16 @@ class TacticalMap(Widget, can_focus=True):
             for radius, style in zip(sensor, _SENSOR_STYLES, strict=True):
                 canvas.circle(cx, cy, radius / gu, style)
         if "drift" in self.overlays and drift is not None:
-            heading, predicted = drift
+            heading, predicted, *via = drift
             ux, uy = _unit(heading)
             canvas.line(cx, cy, cx + ux * 8, cy + uy * 8, "bright_white")
             px, py = self._dot(predicted)
-            canvas.line(cx, cy, px, py, "dim", dashed=True)
+            x0, y0 = cx, cy
+            for point in via:
+                mx, my = self._dot(point)
+                canvas.line(x0, y0, mx, my, "dim", dashed=True)
+                x0, y0 = mx, my
+            canvas.line(x0, y0, px, py, "dim", dashed=True)
             col, row = self._cell_of_dot(px, py)
             canvas.put_text(col, row, heading_glyph(heading), "dim")
 

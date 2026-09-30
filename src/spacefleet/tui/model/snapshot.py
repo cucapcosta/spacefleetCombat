@@ -14,7 +14,7 @@ if TYPE_CHECKING:
     from spacefleet.core.types import DetectionLevel, Faction, Stance, Vector2D
 
 # Phase boundaries reported by ``resolve_turn(on_phase=...)``, in order.
-PHASES: tuple[str, ...] = ("start", "after_fire", "after_move", "end")
+PHASES: tuple[str, ...] = ("start", "after_fire", "mid_move", "after_move", "end")
 
 
 @dataclass(frozen=True)

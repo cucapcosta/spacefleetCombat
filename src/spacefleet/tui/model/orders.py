@@ -7,6 +7,7 @@ reason it was rejected, so widgets can show the reason inline.
 from __future__ import annotations
 
 import copy
+import dataclasses
 import math
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, cast
@@ -21,12 +22,19 @@ from spacefleet.commander.abilities import (
     SpawnProbe,
     Teleport,
 )
+from spacefleet.core.game_loop import SUBSTEPS
 from spacefleet.core.types import DetectionLevel, Stance, Vector2D
 from spacefleet.data.skill_registry import SkillRegistry
-from spacefleet.net.commands import AbilityOrder, Command, validate_command
+from spacefleet.net.commands import (
+    AbilityOrder,
+    Command,
+    Maneuver,
+    validate_command,
+    validate_move,
+)
 from spacefleet.net.server_renderer import ServerRenderer
 from spacefleet.phases.command_phase import validate_ability_order
-from spacefleet.phases.movement_phase import MoveOrder, resolve_movement_phase
+from spacefleet.phases.movement_phase import MoveOrder, apply_move_orders, drift_ship
 from spacefleet.spatial.geometry import bearing_from_to, distance, relative_bearing_360
 
 if TYPE_CHECKING:
@@ -59,9 +67,15 @@ class Aim:
 
 @dataclass
 class OrderDraft:
-    """Orders queued so far this turn, keyed by ship id."""
+    """Orders queued so far this turn, keyed by ship id.
+
+    A ship's maneuver is free and independent of its action: *commands*
+    holds actions (fire / strike / pass), *maneuvers* only ships whose
+    speed or heading the player changed.
+    """
 
     commands: dict[str, Command] = field(default_factory=dict)
+    maneuvers: dict[str, Maneuver] = field(default_factory=dict)
     stances: dict[str, Stance] = field(default_factory=dict)
     ability: AbilityOrder | None = None
 
@@ -217,29 +231,66 @@ def validated_command(session: BattleSession, ship: Ship, tokens: list[str]) -> 
     )
 
 
+def validated_maneuver(
+    session: BattleSession, ship: Ship, speed: float | None, turn: float
+) -> Maneuver | str:
+    """Validate a maneuver (target *speed*, signed *turn*) for *ship* this turn."""
+    return validate_move(
+        {
+            "ship_id": ship.id,
+            "action": "move",
+            "maneuver": {"speed": speed, "turn": turn},
+        },
+        ship,
+        session.player_id,
+        session.state.owner_lookup(),
+    )
+
+
 # ── movement preview ────────────────────────────────────────────────
+
+
+@dataclass(frozen=True)
+class MovePrediction:
+    """Where a ship is at the start, middle and end of this turn's movement."""
+
+    start: Vector2D
+    mid: Vector2D
+    mid_heading: float
+    end: Vector2D
+    end_heading: float
+
+    @property
+    def path(self) -> list[Vector2D]:
+        return [self.start, self.mid, self.end]
 
 
 def predict_move(
     ship: Ship,
-    target_speed: float | None,
-    turn_direction: str,
-    turn_degrees: float,
+    maneuver: Maneuver | None,
     *,
     state: CoreGameState | None = None,
-) -> tuple[Vector2D, float]:
-    """Position and heading *ship* would end this turn's movement at.
+) -> MovePrediction:
+    """Simulate this turn's movement of *ship* under *maneuver*, as the resolver does.
 
-    Runs the movement phase on a copy, so *ship* is untouched.  Pass *state*
-    to include passive speed bonuses, as the turn resolver does.
+    Orders apply once (turn clamped to ``Ship.max_turn_this_turn``), then two
+    halves each execute half the turn.  Runs on a copy, so *ship* is
+    untouched.  Pass *state* to include passive speed bonuses.
     """
     ghost = copy.deepcopy(ship)
-    order = MoveOrder(target_speed=target_speed)
-    if turn_direction and turn_degrees:
-        order.turn_degrees = -turn_degrees if turn_direction == "port" else turn_degrees
-        order.turn_direction = turn_direction
-    resolve_movement_phase([ghost], {ghost.id: order}, drift_fraction=0.5, state=state)
-    return ghost.position, ghost.heading
+    orders: dict[str, MoveOrder] = {}
+    if maneuver is not None:
+        side = "starboard" if maneuver.turn > 0 else "port" if maneuver.turn < 0 else ""
+        orders[ghost.id] = MoveOrder(
+            target_speed=maneuver.speed,
+            turn_degrees=maneuver.turn or None,
+            turn_direction=side,
+        )
+    apply_move_orders([ghost], orders, state=state)
+    drift_ship(ghost, 0.5, remaining=1.0, substeps=SUBSTEPS)
+    mid, mid_heading = ghost.position, ghost.heading
+    drift_ship(ghost, 0.5, remaining=0.5, substeps=SUBSTEPS)
+    return MovePrediction(ship.position, mid, mid_heading, ghost.position, ghost.heading)
 
 
 # ── commander ability ───────────────────────────────────────────────
@@ -322,14 +373,19 @@ def ability_order(
 def finalize(
     draft: OrderDraft, session: BattleSession
 ) -> tuple[dict[str, Command], dict[str, Stance], AbilityOrder | None] | str:
-    """Complete *draft* for resolution: ``pass`` for idle ships, stances rechecked.
+    """Complete *draft* for resolution: ``pass`` for idle ships, maneuvers
+    attached to each ship's action, stances rechecked.
 
     Returns the reason as a string when a queued stance is no longer allowed.
     """
     state = session.state
     commands: dict[str, Command] = {}
     for ship_id in alive_player_ids(session):
-        commands[ship_id] = draft.commands.get(ship_id) or Command(ship_id=ship_id, action="pass")
+        command = draft.commands.get(ship_id) or Command(ship_id=ship_id, action="pass")
+        maneuver = draft.maneuvers.get(ship_id)
+        if maneuver is not None:
+            command = dataclasses.replace(command, maneuver=maneuver)
+        commands[ship_id] = command
     stances: dict[str, Stance] = {}
     for ship_id, stance in draft.stances.items():
         ship = state.ships[ship_id]

@@ -1,9 +1,16 @@
-"""Per-ship order menu: Move / Fire / Strike / Tactic / Ability / Pass.
+"""Per-ship order panel: a free maneuver plus one action.
+
+The Maneuver section is always shown at the top for the selected ship.  At
+the top menu the arrow keys edit it (↑/↓ speed, ←/→ turn in 15° steps up to
+``Ship.max_turn_this_turn`` at the new speed); inside a submenu the arrows
+navigate its options as usual.  Top-menu actions are picked by their letter
+keys (or a click): Fire / Boarding strike / Tactic / Ability / Pass.
 
 The panel edits an :class:`OrderDraft` in place and reports through messages:
-previews for the map while the player is choosing, :class:`OrderSet` once a
-ship's command is validated.  Rejections from the order validators are shown
-inline and never reach the draft.
+previews for the map while the player is choosing, :class:`ManeuverSet` when
+the maneuver changes, :class:`OrderSet` once a ship's action is validated.
+Rejections from the order validators are shown inline and never reach the
+draft.
 """
 
 from __future__ import annotations
@@ -39,10 +46,10 @@ from spacefleet.tui.model.orders import (
     stance_rejection,
     validated_command,
     validated_fire_salvo,
+    validated_maneuver,
 )
 
 if TYPE_CHECKING:
-    from textual import events
     from textual.app import ComposeResult
 
     from spacefleet.campaign.battle import BattleSession
@@ -58,7 +65,6 @@ SUBSYSTEMS = ("generator", "deck", "engines", "weapons")
 
 # mode -> the mode Esc returns to
 _PARENT = {
-    "move": "menu",
     "fire_target": "menu",
     "fire_manual": "fire_target",
     "fire_weapons": "fire_target",
@@ -74,7 +80,8 @@ _PARENT = {
 class PreviewChanged(Message):
     """Something the map should draw while an order is being chosen.
 
-    ``kind`` is ``"route"`` (ship_id, pos, heading, path), ``"aim"``
+    ``kind`` is ``"route"`` (ship_id, pos, heading, path through the
+    mid-turn point), ``"aim"``
     (ship_id, origin, bearing_abs, spread_deg, range) or ``"strike"`` (targets).
     """
 
@@ -89,7 +96,15 @@ class PreviewCleared(Message):
 
 
 class OrderSet(Message):
-    """*ship_id* now has a validated command in the draft."""
+    """*ship_id* now has a validated action in the draft."""
+
+    def __init__(self, ship_id: str) -> None:
+        super().__init__()
+        self.ship_id = ship_id
+
+
+class ManeuverSet(Message):
+    """*ship_id*'s maneuver in the draft changed (possibly back to none)."""
 
     def __init__(self, ship_id: str) -> None:
         super().__init__()
@@ -124,14 +139,19 @@ class OrderPanel(Widget, can_focus=True):
     OrderPanel { height: auto; }
     OrderPanel > Vertical { height: auto; }
     OrderPanel #op-title { text-style: bold; }
+    OrderPanel #op-maneuver { color: $accent; }
     OrderPanel #op-order { color: $text-muted; }
     OrderPanel #op-error { color: $error; }
     OrderPanel OptionList { height: auto; max-height: 16; }
     """
 
     BINDINGS: ClassVar[list[BindingType]] = [
-        Binding("m", "move", "Move"),
+        Binding("up", "maneuver(1, 0)", "Speed", show=False, priority=True),
+        Binding("down", "maneuver(-1, 0)", "Speed", show=False, priority=True),
+        Binding("left", "maneuver(0, -1)", "Turn", show=False, priority=True),
+        Binding("right", "maneuver(0, 1)", "Turn", show=False, priority=True),
         Binding("f", "fire", "Fire"),
+        Binding("b", "strike", "Board"),
         Binding("t", "tactic", "Tactic"),
         Binding("h", "ability", "Ability"),
         Binding("p", "pass", "Pass"),
@@ -157,8 +177,6 @@ class OrderPanel(Widget, can_focus=True):
         self._reset_ship_state()
 
     def _reset_ship_state(self) -> None:
-        self._speed = 0.0
-        self._turn = 0.0
         self._contacts: list[ContactInfo] = []
         self._shots: list[Shot] = []
         self._used_slots: set[int] = set()
@@ -172,6 +190,7 @@ class OrderPanel(Widget, can_focus=True):
     def compose(self) -> ComposeResult:
         with Vertical():
             yield Static(id="op-title", markup=False)
+            yield Static(id="op-maneuver", markup=False)
             yield Static(id="op-order", markup=False)
             yield Static(id="op-editor", markup=False)
             yield OptionList(id="op-options")
@@ -188,7 +207,7 @@ class OrderPanel(Widget, can_focus=True):
         return None if self.ship_id is None else self.session.state.ships[self.ship_id]
 
     def set_ship(self, ship_id: str | None) -> None:
-        if ship_id != self.ship_id and self.mode != "menu":
+        if ship_id != self.ship_id:
             self.post_message(PreviewCleared())
         self.ship_id = ship_id
         self._reset_ship_state()
@@ -243,27 +262,25 @@ class OrderPanel(Widget, can_focus=True):
     # ── actions ─────────────────────────────────────────────────────
 
     def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
-        if action in {"move", "fire", "tactic", "ability", "pass"}:
+        if action == "maneuver":
+            # Outside the top menu the arrows belong to the submenu's options.
+            return self.ship is not None and self.mode == "menu"
+        if action in {"fire", "strike", "tactic", "ability", "pass"}:
             return self.ship is not None
         return True
 
-    def action_move(self) -> None:
+    def action_maneuver(self, speed_steps: int, turn_steps: int) -> None:
+        """Step the selected ship's speed and/or turn; clamp to what it can do."""
         ship = self.ship
         if ship is None:
             return
-        self._enter("move")
-        self._speed = min(max(ship.speed, 0.0), ship.effective_speed_max)
-        self._turn = 0.0
-        command = self.draft.commands.get(ship.id)
-        if command is not None and command.action == "ahead":
-            self._speed = float(command.args["speed"])
-        elif command is not None and command.action == "stop":
-            self._speed = 0.0
-        elif command is not None and command.action == "turn":
-            sign = -1.0 if command.args["direction"] == "port" else 1.0
-            self._turn = sign * float(command.args["degrees"])
-        self.focus()
-        self._preview_route(ship)
+        speed, turn = self._maneuver_values(ship)
+        if speed_steps:
+            top = max(ship.effective_speed_max, ship.speed)
+            speed = min(max(speed + speed_steps * SPEED_STEP, 0.0), top)
+        limit = ship.max_turn_this_turn(speed)
+        turn = min(max(turn + turn_steps * TURN_STEP, -limit), limit)
+        self._set_maneuver(ship, speed, turn)
         self._refresh()
 
     def action_fire(self) -> None:
@@ -305,30 +322,6 @@ class OrderPanel(Widget, can_focus=True):
         self._refresh()
 
     # ── events ──────────────────────────────────────────────────────
-
-    def on_key(self, event: events.Key) -> None:
-        ship = self.ship
-        if self.mode != "move" or ship is None:
-            return
-        if event.key in {"up", "down"}:
-            step = SPEED_STEP if event.key == "up" else -SPEED_STEP
-            self._speed = min(max(self._speed + step, 0.0), ship.effective_speed_max)
-            self._turn = 0.0
-        elif event.key in {"left", "right"}:
-            limit = ship.effective_turn_rate
-            step = -TURN_STEP if event.key == "left" else TURN_STEP
-            self._turn = min(max(self._turn + step, -limit), limit)
-        elif event.key == "enter":
-            self._commit(ship, validated_command(self.session, ship, self._move_tokens()))
-            self._refresh()
-            event.stop()
-            return
-        else:
-            return
-        event.stop()
-        self.error_text = ""
-        self._preview_route(ship)
-        self._refresh()
 
     def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
         event.stop()
@@ -381,9 +374,6 @@ class OrderPanel(Widget, can_focus=True):
         action = getattr(self, f"action_{option_id}", None)
         if action is not None:
             action()
-
-    def _choose_move(self, ship: Ship, option_id: str) -> None:
-        return
 
     def _choose_fire_target(self, ship: Ship, option_id: str) -> None:
         if option_id == "manual":
@@ -533,14 +523,27 @@ class OrderPanel(Widget, can_focus=True):
         self.error_text = ""
         self.post_message(AbilitySet(order))
 
-    def _move_tokens(self) -> list[str]:
-        # One movement command per ship: a turn holds speed, else set speed.
-        if self._turn:
-            direction = "port" if self._turn < 0 else "starboard"
-            return ["turn", direction, f"{abs(self._turn):g}"]
-        if self._speed <= 0:
-            return ["stop"]
-        return ["ahead", f"{self._speed:g}"]
+    def _maneuver_values(self, ship: Ship) -> tuple[float, float]:
+        """``(speed after, signed turn)`` of the drafted maneuver; default holds course."""
+        maneuver = self.draft.maneuvers.get(ship.id)
+        if maneuver is None:
+            return ship.speed, 0.0
+        speed = ship.speed if maneuver.speed is None else maneuver.speed
+        return speed, maneuver.turn
+
+    def _set_maneuver(self, ship: Ship, speed: float, turn: float) -> None:
+        target = None if speed == ship.speed else speed
+        if target is None and not turn:
+            self.draft.maneuvers.pop(ship.id, None)
+        else:
+            maneuver = validated_maneuver(self.session, ship, target, turn)
+            if isinstance(maneuver, str):
+                self.error_text = f"Invalid maneuver: {maneuver}"
+                return
+            self.draft.maneuvers[ship.id] = maneuver
+        self.error_text = ""
+        self.post_message(ManeuverSet(ship.id))
+        self._preview_route(ship)
 
     def _manual_aims(self) -> bool:
         return bool(self._aims) and all(aim.target_id is None for aim in self._aims.values())
@@ -560,21 +563,15 @@ class OrderPanel(Widget, can_focus=True):
     # ── previews ────────────────────────────────────────────────────
 
     def _preview_route(self, ship: Ship) -> None:
-        if self._turn:
-            direction = "port" if self._turn < 0 else "starboard"
-            pos, heading = predict_move(
-                ship, None, direction, abs(self._turn), state=self.session.state
-            )
-        else:
-            pos, heading = predict_move(ship, self._speed, "", 0.0, state=self.session.state)
+        prediction = predict_move(ship, self.draft.maneuvers.get(ship.id), state=self.session.state)
         self.post_message(
             PreviewChanged(
                 "route",
                 {
                     "ship_id": ship.id,
-                    "pos": pos,
-                    "heading": heading,
-                    "path": [ship.position, pos],
+                    "pos": prediction.end,
+                    "heading": prediction.end_heading,
+                    "path": prediction.path,
                 },
             )
         )
@@ -616,6 +613,7 @@ class OrderPanel(Widget, can_focus=True):
             return
         ship = self.ship
         title = self.query_one("#op-title", Static)
+        maneuver = self.query_one("#op-maneuver", Static)
         order = self.query_one("#op-order", Static)
         editor = self.query_one("#op-editor", Static)
         options = self.query_one("#op-options", OptionList)
@@ -624,6 +622,7 @@ class OrderPanel(Widget, can_focus=True):
 
         if ship is None:
             title.update("No ship selected")
+            maneuver.update("")
             order.update("")
             editor.update("")
             options.clear_options()
@@ -633,6 +632,7 @@ class OrderPanel(Widget, can_focus=True):
 
         marker = "✓" if ship.id in self.draft.commands else "·"
         title.update(f"▸ {ship.name}  [order {marker}]")
+        maneuver.update(self._maneuver_text(ship))
         order.update(self._order_summary(ship))
         editor.update(self._editor_text(ship))
         error.update(self.error_text)
@@ -640,7 +640,6 @@ class OrderPanel(Widget, can_focus=True):
         rows = self._options(ship)
         previous = options.highlighted if self._shown_mode == self.mode else None
         self._shown_mode = self.mode
-        options.display = self.mode != "move"
         options.set_options(rows)
         # set_options drops the highlight; without one, Enter selects nothing.
         # Keep the cursor in place while the same menu is rebuilt.
@@ -655,8 +654,6 @@ class OrderPanel(Widget, can_focus=True):
         if self.mode == "fire_manual":
             bearing_input.value = ""
             bearing_input.focus()
-        elif self.mode == "move":
-            self.focus()
         elif rows and (self.has_focus or bearing_input.has_focus or options.has_focus):
             options.focus()
 
@@ -672,12 +669,6 @@ class OrderPanel(Widget, can_focus=True):
         args = command.args
         if command.action == "pass":
             return "Wait"
-        if command.action == "stop":
-            return "Stop"
-        if command.action == "ahead":
-            return f"Ahead at {float(args['speed']):g} GU/turn"
-        if command.action == "turn":
-            return f"Turn {args['direction']} {float(args['degrees']):g}°"
         if command.action == "strike":
             return f"Board {args['target']}; target {args['subsystem']}"
         shots = cast("list[Shot]", args.get("shots", [args]))
@@ -685,18 +676,18 @@ class OrderPanel(Widget, can_focus=True):
             f"slot {int(shot['slot'])} @ {float(shot['bearing']):g}°" for shot in shots
         )
 
+    def _maneuver_text(self, ship: Ship) -> str:
+        speed, turn = self._maneuver_values(ship)
+        side = "port" if turn < 0 else "starboard"
+        turn_text = f"{abs(turn):g}° {side}" if turn else "none"
+        limit = ship.max_turn_this_turn(speed)
+        speed_keys, turn_keys = ("  [↑/↓]", "  [←/→]") if self.mode == "menu" else ("", "")
+        return (
+            f"Speed {ship.speed:g} → {speed:g} GU/turn{speed_keys}\n"
+            f"Turn {turn_text} (max {limit:g}° this turn){turn_keys}"
+        )
+
     def _editor_text(self, ship: Ship) -> str:
-        if self.mode == "move":
-            if self._turn:
-                side = "port" if self._turn < 0 else "starboard"
-                turn = f"{abs(self._turn):g}° {side} (holds speed {ship.speed:g})"
-            else:
-                turn = "none"
-            return (
-                f"Speed {self._speed:g}/{ship.effective_speed_max:g} GU  [↑/↓]\n"
-                f"Turn {turn}  (max {ship.effective_turn_rate:g}°)  [←/→]\n"
-                "[Enter] set  [Esc] back"
-            )
         if self.mode == "fire_target":
             return f"Fire salvo — {len(self._shots)} shot(s) queued"
         if self.mode == "fire_manual":
@@ -706,7 +697,7 @@ class OrderPanel(Widget, can_focus=True):
         if self.mode == "ability_pos":
             return "Click the map to choose the target position.  [Esc] back"
         if self.mode == "menu":
-            return "[M]ove [F]ire [T]actic [H]ability [P]ass"
+            return "[F]ire [B]oard [T]actic [H]ability [P]ass"
         return ""
 
     def _options(self, ship: Ship) -> list[Option]:
@@ -716,9 +707,8 @@ class OrderPanel(Widget, can_focus=True):
     def _options_menu(self, ship: Ship) -> list[Option]:
         strike_reason = None if ship.hull.assault_actions > 0 else "no boarding capability"
         return [
-            _option("move", "[M] Move"),
             _option("fire", "[F] Fire"),
-            _option("strike", "Boarding strike", strike_reason),
+            _option("strike", "[B] Boarding strike", strike_reason),
             _option("tactic", "[T] Tactic"),
             _option("ability", "[H] Ability"),
             _option("pass", "[P] Pass"),

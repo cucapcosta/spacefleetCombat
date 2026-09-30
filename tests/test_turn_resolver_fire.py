@@ -8,6 +8,7 @@ from spacefleet.combat.fire_control import aim_for
 from spacefleet.core.types import Arc, DetectionLevel, Vector2D
 from spacefleet.data.demo_data import LANCE_2
 from spacefleet.dice import DiceRoller
+from spacefleet.models.projectile import Projectile
 from spacefleet.models.weapon import WeaponMount
 from spacefleet.net import turn_resolver
 from spacefleet.net.ai_controller import AIController
@@ -214,11 +215,20 @@ def test_fire_bearing_is_relative_to_prow() -> None:
     )
     assert bad == "Bearing 0° rel is outside starboard arc (045°–135° rel)."
 
-    log = resolve_turn(state, {ship.id: ok})
+    # New rule: salvos fly a full turn (two halves) and may expire before the
+    # turn ends, so look at the salvo right after the fire sub-phase.
+    launched: list[object] = []
+
+    def after_fire(name: str, s: GameState) -> None:
+        if name == "after_fire":
+            launched.extend(s.projectiles)
+
+    log = resolve_turn(state, {ship.id: ok}, on_phase=after_fire)
 
     (launch,) = [e for e in log.events if isinstance(e, SalvoLaunchEvent)]
     assert launch.bearing == pytest.approx(90.0)
-    (proj,) = state.projectiles
+    (proj,) = launched
+    assert isinstance(proj, Projectile)
     assert proj.bearing == pytest.approx(216.0)
 
 

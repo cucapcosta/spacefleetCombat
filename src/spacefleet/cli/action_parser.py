@@ -17,12 +17,60 @@ def _finite_number(raw: str, label: str) -> float | str:
     return value
 
 
+_PORT = ("port", "p", "left")
+_STARBOARD = ("starboard", "stbd", "s", "right")
+_MOVE_USAGE = "Usage: move <speed|-> [port|starboard <degrees>]."
+
+
+def _parse_move(args: list[str]) -> dict[str, object] | str:
+    """``move <speed|-> [port|starboard <deg>]`` → wire maneuver object."""
+    if not args:
+        return _MOVE_USAGE
+    speed: float | None = None
+    if args[0] != "-":
+        parsed = _finite_number(args[0], "speed")
+        if isinstance(parsed, str):
+            return parsed
+        speed = parsed
+    turn = 0.0
+    rest = args[1:]
+    if rest:
+        direction = rest[0].lower()
+        if direction not in _PORT + _STARBOARD or len(rest) != 2:
+            return _MOVE_USAGE
+        degrees = _finite_number(rest[1], "degrees")
+        if isinstance(degrees, str):
+            return degrees
+        if degrees < 0:
+            return "Degrees must be positive. Use port or starboard for the side."
+        turn = -degrees if direction in _PORT else degrees
+    return {"speed": speed, "turn": turn}
+
+
 def parse_action_command(ship_id: str, tokens: list[str]) -> dict[str, object] | str:
-    """Parse CLI tokens into a wire-compatible command mapping or an error."""
+    """Parse CLI tokens into a wire-compatible command mapping or an error.
+
+    Result shape: ``{"type": "command", "ship_id", "action", "args"}``.
+    ``move`` is the free maneuver: ``action="move"``, ``args={}`` and
+    ``"maneuver": {"speed": float | None, "turn": float}`` (``None`` keeps
+    the current speed; turn is + starboard, - port).  The server stores it
+    and attaches it to the ship's next fire/strike/pass.
+    """
     if not tokens:
         return "No command entered."
     command, args = tokens[0].lower(), tokens[1:]
 
+    if command == "move":
+        maneuver = _parse_move(args)
+        if isinstance(maneuver, str):
+            return maneuver
+        return {
+            "type": MSG_COMMAND,
+            "ship_id": ship_id,
+            "action": "move",
+            "args": {},
+            "maneuver": maneuver,
+        }
     if command == "fire":
         if len(args) < 2:
             return "Usage: fire <weapon#> <bearing> (relative to prow: 0 ahead, 90 starboard)."

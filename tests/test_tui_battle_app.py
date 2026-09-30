@@ -14,7 +14,7 @@ from spacefleet.campaign.battle import BattleSession, build_battle
 from spacefleet.campaign.models import BattleOutcome
 from spacefleet.core.types import Stance
 from spacefleet.net.ai_controller import AIController
-from spacefleet.net.commands import AbilityOrder, Command
+from spacefleet.net.commands import AbilityOrder, Command, Maneuver
 from spacefleet.net.turn_resolver import TurnLog
 from spacefleet.tui import battle_app
 from spacefleet.tui.battle_app import (
@@ -27,7 +27,9 @@ from spacefleet.tui.battle_app import (
     TuiBattleRunner,
     format_pending,
 )
-from spacefleet.tui.model.orders import OrderDraft, alive_player_ids
+from spacefleet.tui.model.orders import OrderDraft, alive_player_ids, predict_move
+from spacefleet.tui.widgets.log_screen import LogScreen
+from spacefleet.tui.widgets.turn_report_screen import TurnReportScreen
 from tests.campaign_helpers import campaign_state
 
 if TYPE_CHECKING:
@@ -78,6 +80,13 @@ async def _confirm_turn(pilot: Pilot[BattleOutcome]) -> None:
     await pilot.pause()
 
 
+async def _close_report(pilot: Pilot[BattleOutcome], key: str = "enter") -> None:
+    assert isinstance(pilot.app.screen, TurnReportScreen)
+    await pilot.press(key)
+    await pilot.pause()
+    assert not isinstance(pilot.app.screen, TurnReportScreen)
+
+
 def test_orders_confirm_skip_advances_turn_and_returns_to_planning() -> None:
     session = build_battle(campaign_state())
     ai = RecordingAI()
@@ -94,6 +103,7 @@ def test_orders_confirm_skip_advances_turn_and_returns_to_planning() -> None:
         assert session.state.turn == 1
         await pilot.press("space")
         await pilot.pause()
+        await _close_report(pilot)
         assert app.phase == PLANNING
         assert app.draft.commands == {}
         assert any("Turn 1" in line for line in app.event_log.entries)
@@ -128,6 +138,7 @@ def test_playback_end_frame_matches_end_snapshot() -> None:
         assert timeline is not None
         await pilot.press("space")
         await pilot.pause()
+        await _close_report(pilot, "escape")
         end = timeline.snapshots["end"]
         assert app.playhead == timeline.duration
         assert timeline.sample(app.playhead).ships == end.ships
@@ -141,6 +152,7 @@ def test_playback_end_frame_matches_end_snapshot() -> None:
         assert app.playhead < timeline.duration
         await pilot.press("space")
         await pilot.pause()
+        assert not isinstance(app.screen, TurnReportScreen)  # no report after a replay
         assert app.phase == PLANNING
         assert session.state.turn == 1
         await pilot.press("q", "y")
@@ -163,9 +175,10 @@ def test_playback_runs_to_the_end_by_itself_and_speed_keys_change_speed() -> Non
         await pilot.press("plus", "plus")
         assert app.timeline is not None
         for _ in range(100):
-            if app.phase == PLANNING:
+            if isinstance(app.screen, TurnReportScreen):
                 break
             await pilot.pause(0.05)
+        await _close_report(pilot, "space")
         assert app.phase == PLANNING
         await pilot.press("q", "y")
 
@@ -409,7 +422,7 @@ def test_format_pending_is_human_readable_and_complete() -> None:
     assert "Lock On" in text
     assert "Concentrated Fire" in text
     assert target.id not in text
-    assert f"{state.ships[ids[1]].name}: Pass" in text
+    assert f"{state.ships[ids[1]].name}: hold course; pass (no order)" in text
 
 
 def test_format_pending_lists_every_salvo_weapon() -> None:
@@ -454,26 +467,84 @@ def test_turn_limit_must_be_positive() -> None:
         BattleApp(build_battle(campaign_state()), turn_limit=0)
 
 
-def test_move_preview_reaches_map_and_order_marks_status() -> None:
+def test_maneuver_preview_reaches_map_and_action_marks_status() -> None:
     session = build_battle(campaign_state())
 
     async def scenario(app: BattleApp, pilot: Pilot[BattleOutcome]) -> None:
         tmap = app.tactical_map
-        tmap.focus()  # order letters still reach the panel
-        await pilot.press("m", "up")
-        await pilot.pause()
-        assert tmap._preview is not None and tmap._preview[0] == "route"
-        await pilot.press("escape")
+        tmap.focus()
+        await pilot.press("up")  # the map owns the arrows while focused
         await pilot.pause()
         assert tmap._preview is None
-        await pilot.press("m", "up", "enter")
+        assert app.draft.maneuvers == {}
+        app.order_panel.focus()
+        await pilot.press("up", "right")
         await pilot.pause()
-        assert app.selected is not None
-        assert app.draft.commands[app.selected].action == "ahead"
+        selected = app.selected
+        assert selected is not None
+        ship = session.state.ships[selected]
+        maneuver = app.draft.maneuvers[selected]
+        assert maneuver == Maneuver(speed=ship.speed + 1.0, turn=15.0)
+        assert tmap._preview is not None and tmap._preview[0] == "route"
+        assert len(tmap._preview[1]["path"]) == 3
+        expected = predict_move(ship, maneuver, state=session.state)
+        _arcs, _sensor, drift = tmap._overlay_data[selected]
+        assert drift == (expected.end_heading, expected.end, expected.mid)
+        assert "✓" not in app.status_panel.plain_text()
+        await pilot.press("p")
+        await pilot.pause()
+        assert app.draft.commands[selected].action == "pass"
         assert "✓" in app.status_panel.plain_text()
         await pilot.press("q", "y")
 
     _run(session, scenario)
+
+
+def test_confirmed_turn_resolves_maneuver_with_the_action() -> None:
+    session = build_battle(campaign_state())
+    first = alive_player_ids(session)[0]
+    ship = session.state.ships[first]
+    start_heading = ship.heading
+    expected = predict_move(ship, Maneuver(turn=15.0), state=session.state)
+
+    async def scenario(app: BattleApp, pilot: Pilot[BattleOutcome]) -> None:
+        await pilot.press("right", "p")
+        await pilot.pause()
+        await _confirm_turn(pilot)
+        await pilot.press("q", "y")
+
+    _run(session, scenario, ai=RecordingAI())
+    assert ship.heading != start_heading
+    assert ship.heading == pytest.approx(expected.end_heading)
+
+
+def test_format_pending_joins_maneuver_and_action() -> None:
+    session = build_battle(campaign_state())
+    first, second = alive_player_ids(session)[:2]
+    ship = session.state.ships[first]
+    target = session.state.ships[session.enemy_runtime_ids[0]]
+    shots = [
+        {"slot": 1, "bearing": 10.0, "target": target.id},
+        {"slot": 2, "bearing": 12.0, "target": target.id},
+    ]
+    draft = OrderDraft(
+        commands={first: Command(first, "fire", {"shots": shots})},
+        maneuvers={first: Maneuver(speed=8.0, turn=30.0), second: Maneuver(turn=-15.0)},
+    )
+
+    text = format_pending(session, draft, labels={target.id: "E1"})
+
+    assert f"{ship.name}: speed 8, turn 30° starboard; fire 2 weapons at E1" in text
+    second_name = session.state.ships[second].name
+    assert f"{second_name}: turn 15° port; pass (no order)" in text
+
+
+def test_format_pending_says_hold_course_without_maneuver() -> None:
+    session = build_battle(campaign_state())
+    first = alive_player_ids(session)[0]
+    draft = OrderDraft(commands={first: Command(first, "pass")})
+    text = format_pending(session, draft)
+    assert f"{session.state.ships[first].name}: hold course; pass" in text
 
 
 def test_clicking_own_ship_on_map_selects_it() -> None:
@@ -536,3 +607,107 @@ def test_help_key_is_visible_in_the_footer_at_120_columns() -> None:
         await pilot.press("q", "y")
 
     _run(session, scenario, size=(120, 40))
+
+
+def test_report_opens_after_skip_and_enter_returns_to_planning() -> None:
+    session = build_battle(campaign_state())
+
+    async def scenario(app: BattleApp, pilot: Pilot[BattleOutcome]) -> None:
+        await _confirm_turn(pilot)
+        await pilot.press("space")
+        await pilot.pause()
+        assert isinstance(app.screen, TurnReportScreen)
+        assert app.phase != PLANNING
+        assert app.last_report is not None and app.last_report.turn == 1
+        report = str(app.screen.query_one("#report", Static).content)
+        assert "Turn 1 report" in report
+        assert session.state.ships[alive_player_ids(session)[0]].name in report
+        await pilot.press("enter")
+        await pilot.pause()
+        assert app.phase == PLANNING
+        assert session.state.turn == 1
+        await pilot.press("q", "y")
+
+    _run(session, scenario, ai=RecordingAI())
+
+
+def test_victory_exits_without_a_report(monkeypatch: pytest.MonkeyPatch) -> None:
+    session = build_battle(campaign_state())
+    screens: list[str] = []
+
+    def win(
+        state: GameState, commands: dict[str, Command], ability_orders: Any, **kw: Any
+    ) -> TurnLog:
+        _kill(session, session.enemy_runtime_ids)
+        return TurnLog(turn=state.turn)
+
+    monkeypatch.setattr(battle_app, "resolve_turn", win)
+    monkeypatch.setattr(
+        battle_app,
+        "TurnReportScreen",
+        lambda *_a: screens.append("report") or pytest.fail("report"),
+    )
+
+    async def scenario(app: BattleApp, pilot: Pilot[BattleOutcome]) -> None:
+        await _confirm_turn(pilot)
+        await pilot.press("space")
+
+    _app, outcome = _run(session, scenario, ai=RecordingAI())
+    assert outcome is BattleOutcome.VICTORY
+    assert screens == []
+
+
+def test_log_screen_opens_with_history_and_closes_with_l_or_escape() -> None:
+    session = build_battle(campaign_state())
+
+    async def scenario(app: BattleApp, pilot: Pilot[BattleOutcome]) -> None:
+        await pilot.press("L")
+        await pilot.pause()
+        assert isinstance(app.screen, LogScreen)
+        await pilot.press("L")
+        await pilot.pause()
+        assert not isinstance(app.screen, LogScreen)
+        await _confirm_turn(pilot)
+        await pilot.press("L")  # not during playback
+        await pilot.pause()
+        assert not isinstance(app.screen, LogScreen)
+        await pilot.press("space")
+        await pilot.pause()
+        await _close_report(pilot)
+        assert [turn for turn, _lines in app.history] == [1]
+        await pilot.press("L")
+        await pilot.pause()
+        screen = app.screen
+        assert isinstance(screen, LogScreen)
+        lines = screen.visible_lines
+        assert lines[0] == "Turn 1 report"
+        assert "── Turn 1 ──" in lines
+        await pilot.press("escape")
+        await pilot.pause()
+        assert not isinstance(app.screen, LogScreen)
+        assert app.phase == PLANNING
+        # Replay still works once the report and the log are closed.
+        await pilot.press("r")
+        await pilot.pause()
+        assert app.phase == PLAYBACK
+        await pilot.press("space")
+        await pilot.pause()
+        assert app.phase == PLANNING
+        await pilot.press("q", "y")
+
+    _run(session, scenario, ai=RecordingAI())
+
+
+def test_log_key_is_in_the_footer_and_help() -> None:
+    session = build_battle(campaign_state())
+
+    async def scenario(app: BattleApp, pilot: Pilot[BattleOutcome]) -> None:
+        keys = {k.action: k for k in app.query(FooterKey)}
+        assert "log" in keys
+        await pilot.press("question_mark")
+        await pilot.pause()
+        assert "Battle log" in str(app.screen.query_one("#keys", Static).content)
+        await pilot.press("escape")
+        await pilot.press("q", "y")
+
+    _run(session, scenario)

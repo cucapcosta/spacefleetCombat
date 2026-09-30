@@ -2,7 +2,8 @@
 
 Collects commands from all ships, then resolves in order:
 1. **Fire sub-phase** — all shots resolve (lances instant, batteries create projectiles)
-2. **Movement sub-phase** — speed/turn applied, projectiles advance, ships drift
+2. **Movement sub-phase** — speed/turn applied once, then two halves in which
+   ships and projectiles advance together with continuous collision
 3. **End-of-turn sub-phase** — shields regen, fire damage, destroyed checks
 
 The :func:`resolve_turn` function is the server's authoritative resolution
@@ -21,10 +22,9 @@ from spacefleet.commander.abilities import AreaHullDamageHitEvent
 from spacefleet.commander.passive_skills import PassiveBus
 from spacefleet.core.events import TurnEvent as TurnEvent  # re-exported for renderers
 from spacefleet.core.game_loop import (
+    advance_half,
     apply_end_of_turn,
-    check_projectile_collisions,
     cleanup_projectiles,
-    move_projectiles,
 )
 from spacefleet.core.types import Stance
 from spacefleet.models.projectile import Projectile
@@ -32,7 +32,7 @@ from spacefleet.phases.command_phase import (
     AbilityInterruptedEvent,
     resolve_command_phase,
 )
-from spacefleet.phases.movement_phase import MoveOrder, resolve_movement_phase
+from spacefleet.phases.movement_phase import MoveOrder, apply_move_orders
 from spacefleet.spatial.geometry import absolute_bearing, relative_bearing_360
 from spacefleet.spatial.geometry import distance as geo_distance
 
@@ -85,6 +85,8 @@ class SalvoImpactEvent(TurnEvent):
     proj: Projectile
     target: Ship
     result: AttackResult
+    time: float = 0.0  # when it hit, as a fraction of the turn (0..1)
+    position: Vector2D | None = None  # target position at impact
 
 
 @dataclass
@@ -203,7 +205,8 @@ def resolve_turn(
         submitted an order (human + AI).
     on_phase:
         Optional observer called with the state at each sub-phase boundary:
-        ``"start"``, ``"after_fire"``, ``"after_move"`` and ``"end"``.
+        ``"start"``, ``"after_fire"``, ``"mid_move"`` (between the two
+        movement halves), ``"after_move"`` and ``"end"``.
 
     Returns
     -------
@@ -405,31 +408,20 @@ def resolve_turn(
         on_phase("after_fire", state)
 
     # ── 2. MOVEMENT SUB-PHASE ────────────────────────────────
+    # Orders apply once; then two halves in which ships and salvos move
+    # together with continuous collision.  The ordered turn is split between
+    # the halves and never carries over.
     move_orders: dict[str, MoveOrder] = {}
     for ship_id, cmd in commands.items():
         maybe_ship = state.ships.get(ship_id)
         if maybe_ship is None or not maybe_ship.alive:
             continue
-        if cmd.action == "ahead":
-            move_orders[ship_id] = MoveOrder(target_speed=cmd.args["speed"])
-        elif cmd.action == "stop":
-            move_orders[ship_id] = MoveOrder(target_speed=0.0)
-        elif cmd.action == "turn":
-            degrees = cmd.args["degrees"]
-            if cmd.args["direction"] == "port":
-                degrees = -degrees
-            move_orders[ship_id] = MoveOrder(
-                turn_degrees=degrees,
-                turn_direction=cmd.args["direction"],
-            )
+        order = _move_order(cmd)
+        if order is not None:
+            move_orders[ship_id] = order
 
-    move_events = resolve_movement_phase(
-        state.alive_ships(),
-        move_orders,
-        drift_fraction=0.5,
-        state=state,
-    )
-    for ev in move_events:
+    movers = state.alive_ships()
+    for ev in apply_move_orders(movers, move_orders, state=state):
         ship = state.ships[ev.ship_id]
         if ev.kind in ("morale_cap", "speed"):
             emit(
@@ -447,32 +439,49 @@ def resolve_turn(
                     degrees=ev.turn_degrees,
                 ),
             )
-        elif ev.kind == "drift":
+
+    ship_before = {s.id: (s.position, s.heading) for s in movers}
+    salvo_before = {id(p): p.position for p in state.projectiles if p.alive}
+    for half in (0, 1):
+        impacts = advance_half(
+            state.alive_ships(),
+            state.projectiles,
+            state.dice,
+            state,
+            start=0.5 * half,
+        )
+        for hit in impacts:
             emit(
-                DriftEvent(
-                    ship=ship,
-                    old_pos_str=repr(ship.position),
-                    heading_before=ev.heading_before,
-                    heading_after=ev.heading_after,
-                ),
+                SalvoImpactEvent(
+                    proj=hit.projectile,
+                    target=hit.target,
+                    result=hit.result,
+                    time=hit.time,
+                    position=hit.position,
+                )
             )
+            if hit.result.target_destroyed:
+                _credit_destroyed_ship(
+                    state, hit.target.id, killer_ship_id=hit.projectile.attacker_id, emit=emit
+                )
+        if half == 0 and on_phase is not None:
+            on_phase("mid_move", state)
 
-    # Projectiles advance
-    movements = move_projectiles(state.projectiles, fraction=0.5)
-    for proj, old_pos, new_pos in movements:
-        emit(SalvoMoveEvent(proj=proj, old_pos=old_pos, new_pos=new_pos))
-
-    # Check projectile collisions
-    impacts = check_projectile_collisions(
-        movements,
-        state.all_ships_list(),
-        state.dice,
-        state,
-    )
-    for proj, target, result in impacts:
-        emit(SalvoImpactEvent(proj=proj, target=target, result=result))
-        if result.target_destroyed:
-            _credit_destroyed_ship(state, target.id, killer_ship_id=proj.attacker_id, emit=emit)
+    # One drift / salvo-move event per turn, spanning both halves.
+    for ship in movers:
+        ship.pending_turn = 0.0
+        old_pos, heading_before = ship_before[ship.id]
+        emit(
+            DriftEvent(
+                ship=ship,
+                old_pos_str=repr(old_pos),
+                heading_before=heading_before,
+                heading_after=ship.heading,
+            ),
+        )
+    for proj in state.projectiles:
+        if id(proj) in salvo_before:
+            emit(SalvoMoveEvent(proj=proj, old_pos=salvo_before[id(proj)], new_pos=proj.position))
 
     # Cleanup expired projectiles
     expired = cleanup_projectiles(state.projectiles)
@@ -597,6 +606,27 @@ def resolve_turn(
 
 
 # ── Helpers ──────────────────────────────────────────────────
+
+
+def _move_order(cmd: Command) -> MoveOrder | None:
+    """The movement part of *cmd*: its maneuver, or a legacy move action."""
+    if cmd.maneuver is not None:
+        turn = cmd.maneuver.turn
+        return MoveOrder(
+            target_speed=cmd.maneuver.speed,
+            turn_degrees=turn or None,
+            turn_direction="starboard" if turn > 0 else "port" if turn < 0 else "",
+        )
+    if cmd.action == "ahead":
+        return MoveOrder(target_speed=cmd.args["speed"])
+    if cmd.action == "stop":
+        return MoveOrder(target_speed=0.0)
+    if cmd.action == "turn":
+        degrees = cmd.args["degrees"]
+        if cmd.args["direction"] == "port":
+            degrees = -degrees
+        return MoveOrder(turn_degrees=degrees, turn_direction=cmd.args["direction"])
+    return None
 
 
 def _award_battle_end(state: GameState, emit: Callable[[TurnEvent], None]) -> None:

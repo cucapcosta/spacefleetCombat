@@ -13,7 +13,6 @@ from typing import TYPE_CHECKING
 from spacefleet.cli.colors import C, bold, colored, dim, health_bar
 from spacefleet.cli.display import (
     format_attack_result,
-    format_available_actions,
     format_contact,
     format_drift_report,
     format_end_of_turn,
@@ -209,8 +208,14 @@ class ServerRenderer:
         if n_allies:
             parts.append(f"{n_allies} friendly")
         contact_summary = f"  [{', '.join(parts)}]" if parts else ""
+        limit = ship.max_turn_this_turn(ship.speed)
+        hint = (
+            f"move <speed|-> [port|starboard <deg>] (free, turn up to {limit:g}\u00b0),"
+            " then fire/strike/pass"
+        )
         return (
             f"\n  {colored(f'Command for {ship.name}', C.BRIGHT_CYAN)}{fleet_str}{contact_summary}"
+            f"\n  {dim(hint)}"
         )
 
     # ── Query responses ──────────────────────────────────────
@@ -256,7 +261,7 @@ class ServerRenderer:
             return format_weapons_list(ship, enemies, contact_infos=contacts)
 
         if query in ("help", "?"):
-            return format_available_actions(0)
+            return _render_help(ship)
 
         return f"  Unknown query: '{query}'"
 
@@ -568,3 +573,35 @@ class ServerRenderer:
             if ps and ps.alive and distance(ps.position, ship.position) <= max_range:
                 return True
         return False
+
+
+def _render_help(ship: Ship) -> str:
+    """Online order syntax: one free maneuver, then one action ends the ship."""
+    moving = ship.max_turn_this_turn(1.0)
+    pivot = ship.max_turn_this_turn(0.0)
+    limits = f"    turn up to {moving:g}° moving, {pivot:g}° pivoting at speed 0;"
+    lines = [
+        f"\n  {bold('Orders: a free maneuver, then one action')}",
+        "",
+        f"  {colored('move', C.BRIGHT_CYAN)} <speed|-> [port|starboard <deg>]"
+        " — Free: set speed ('-' keeps it) and turn this turn",
+        f"  {dim(limits)} {dim('a later move replaces it')}",
+        f"  {colored('fire', C.BRIGHT_YELLOW)} <weapon#> <bearing>"
+        "   — Fire at a bearing rel. to prow: 0 ahead, 90 starboard, 270 port",
+        f"  {colored('strike', C.BRIGHT_YELLOW)} <target> <subsystem>"
+        " — Lightning Strike (shields must be down, ≤15 GU)",
+        f"  {colored('pass', C.DIM)}                       — No action (the maneuver still runs)",
+        "",
+        f"  {dim('Shortcuts (maneuver + pass):')}",
+        f"  {colored('ahead', C.BRIGHT_CYAN)} [speed]               — Set speed (no arg = full)",
+        f"  {colored('stop', C.BRIGHT_CYAN)}                       — All stop",
+        f"  {colored('turn', C.BRIGHT_CYAN)} <port|starboard> <deg> — Turn this turn",
+        "",
+        f"  {dim('Free actions:')}",
+        f"  {colored('status', C.GREEN)}                     — Detailed ship status",
+        f"  {colored('scan', C.GREEN)}                       — View sensor contacts",
+        f"  {colored('weapons', C.GREEN)}                    — List weapons with arc info",
+        f"  {colored('stance', C.GREEN)} [name]              — View or switch stance",
+        f"  {colored('help', C.GREEN)}                       — Show this list",
+    ]
+    return "\n".join(lines)

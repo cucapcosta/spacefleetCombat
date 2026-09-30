@@ -7,7 +7,7 @@ import pytest
 
 from spacefleet.campaign.battle import BattleSession, build_battle
 from spacefleet.core.types import Arc, DetectionLevel, Stance, Vector2D
-from spacefleet.net.commands import Command
+from spacefleet.net.commands import Command, Maneuver
 from spacefleet.net.turn_resolver import resolve_turn
 from spacefleet.spatial.detection import ContactInfo
 from spacefleet.spatial.geometry import arc_range_str, is_in_arc
@@ -26,6 +26,7 @@ from spacefleet.tui.model.orders import (
     stance_rejection,
     validated_command,
     validated_fire_salvo,
+    validated_maneuver,
 )
 from tests.campaign_helpers import campaign_state
 
@@ -167,14 +168,13 @@ def test_stance_rejection_reports_cooldown() -> None:
 def test_finalize_fills_pass_for_ships_without_orders() -> None:
     session = _session()
     first, second = (_player_ship(session, i) for i in range(2))
-    stop = validated_command(session, first, ["stop"])
-    assert isinstance(stop, Command)
-    draft = OrderDraft(commands={first.id: stop})
+    fire = Command(first.id, "fire", {"slot": 1, "bearing": 0.0})
+    draft = OrderDraft(commands={first.id: fire})
 
     result = finalize(draft, session)
     assert not isinstance(result, str)
     commands, stances, ability = result
-    assert commands[first.id] is stop
+    assert commands[first.id] is fire
     assert commands[second.id] == Command(ship_id=second.id, action="pass")
     assert stances == {}
     assert ability is None
@@ -203,23 +203,23 @@ def test_finalize_rejects_stance_that_became_invalid() -> None:
 
 
 @pytest.mark.parametrize(
-    ("tokens", "speed", "direction", "degrees"),
+    "maneuver",
     [
-        (["ahead", "6"], 6.0, "", 0.0),
-        (["stop"], 0.0, "", 0.0),
-        (["turn", "port", "40"], None, "port", 40.0),
-        (["turn", "starboard", "15"], None, "starboard", 15.0),
+        None,
+        Maneuver(speed=6.0),
+        Maneuver(speed=0.0),
+        Maneuver(turn=-40.0),
+        Maneuver(speed=7.0, turn=15.0),
+        Maneuver(speed=0.0, turn=90.0),
     ],
 )
-def test_predict_move_matches_resolution_without_mutating(
-    tokens: list[str], speed: float | None, direction: str, degrees: float
-) -> None:
+def test_predict_move_matches_resolution_without_mutating(maneuver: Maneuver | None) -> None:
     session = _session()
     ship = _player_ship(session)
     ship.speed = 4.0
     before = deepcopy(ship)
 
-    position, heading = predict_move(ship, speed, direction, degrees, state=session.state)
+    prediction = predict_move(ship, maneuver, state=session.state)
 
     assert ship.position == before.position
     assert ship.heading == before.heading
@@ -228,13 +228,83 @@ def test_predict_move_matches_resolution_without_mutating(
     assert ship.combustion == before.combustion
 
     state = deepcopy(session.state)
-    command = validated_command(session, ship, tokens)
-    assert isinstance(command, Command)
-    resolve_turn(state, {ship.id: command}, {})
+    mids: list[tuple[Vector2D, float]] = []
+
+    def on_phase(phase: str, phase_state: object) -> None:
+        if phase == "mid_move":
+            mid = state.ships[ship.id]
+            mids.append((mid.position, mid.heading))
+
+    command = Command(ship_id=ship.id, action="pass", maneuver=maneuver)
+    resolve_turn(state, {ship.id: command}, {}, on_phase=on_phase)
     resolved = state.ships[ship.id]
-    assert position.x == pytest.approx(resolved.position.x)
-    assert position.y == pytest.approx(resolved.position.y)
-    assert heading == pytest.approx(resolved.heading)
+    assert prediction.start == ship.position
+    assert prediction.end.x == pytest.approx(resolved.position.x)
+    assert prediction.end.y == pytest.approx(resolved.position.y)
+    assert prediction.end_heading == pytest.approx(resolved.heading)
+    (mid_pos, mid_heading) = mids[0]
+    assert prediction.mid.x == pytest.approx(mid_pos.x)
+    assert prediction.mid.y == pytest.approx(mid_pos.y)
+    assert prediction.mid_heading == pytest.approx(mid_heading)
+    assert prediction.path == [ship.position, prediction.mid, prediction.end]
+
+
+def test_predict_move_clamps_turn_to_this_turns_limit() -> None:
+    session = _session()
+    ship = _player_ship(session)
+    ship.speed = 4.0
+    limit = ship.max_turn_this_turn(4.0)
+
+    prediction = predict_move(ship, Maneuver(turn=limit + 90.0), state=session.state)
+
+    assert prediction.end_heading == pytest.approx((ship.heading + limit) % 360.0)
+
+
+def test_validated_maneuver_enforces_turn_limit_at_new_speed() -> None:
+    session = _session()
+    ship = _player_ship(session)
+    ship.speed = 0.0
+    pivot = ship.max_turn_this_turn(0.0)
+    moving = ship.max_turn_this_turn(3.0)
+    assert pivot > moving
+
+    assert validated_maneuver(session, ship, None, pivot) == Maneuver(speed=None, turn=pivot)
+    rejected = validated_maneuver(session, ship, 3.0, -pivot)
+    assert isinstance(rejected, str)
+    assert f"{moving:g}°" in rejected
+    assert validated_maneuver(session, ship, 3.0, -moving) == Maneuver(speed=3.0, turn=-moving)
+
+
+def test_finalize_carries_maneuver_alongside_the_action() -> None:
+    session = _session()
+    first, second = (_player_ship(session, i) for i in range(2))
+    fire = Command(first.id, "fire", {"slot": 1, "bearing": 0.0})
+    maneuver = Maneuver(speed=5.0, turn=15.0)
+    draft = OrderDraft(
+        commands={first.id: fire},
+        maneuvers={first.id: maneuver, second.id: Maneuver(turn=-15.0)},
+    )
+
+    result = finalize(draft, session)
+    assert not isinstance(result, str)
+    commands = result[0]
+    assert commands[first.id] == Command(first.id, "fire", fire.args, maneuver=maneuver)
+    assert commands[second.id] == Command(second.id, "pass", maneuver=Maneuver(turn=-15.0))
+    assert draft.commands[first.id].maneuver is None  # draft untouched
+
+
+def test_finalize_without_maneuver_keeps_speed() -> None:
+    session = _session()
+    ship = _player_ship(session)
+    ship.speed = 3.0
+    result = finalize(OrderDraft(), session)
+    assert not isinstance(result, str)
+    command = result[0][ship.id]
+    assert command.maneuver is None
+
+    state = deepcopy(session.state)
+    resolve_turn(state, result[0], {})
+    assert state.ships[ship.id].speed == 3.0
 
 
 def test_ability_order_unknown_id_is_rejected() -> None:

@@ -4,7 +4,8 @@ from spacefleet.net.commands import Command
 from spacefleet.net.game_state import GameState
 from spacefleet.net.turn_resolver import resolve_turn
 
-PHASES = ["start", "after_fire", "after_move", "end"]
+# New rule: two movement halves, observed through "mid_move" between them.
+PHASES = ["start", "after_fire", "mid_move", "after_move", "end"]
 
 
 def _state_and_commands() -> tuple[GameState, dict[str, Command]]:

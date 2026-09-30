@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import dataclasses
 
+import pytest
+
 from spacefleet.core.types import Arc, Faction, Stance, Vector2D
 from spacefleet.data.demo_data import HULK_HULL, SALVAGE_GUN
 from spacefleet.dice import DiceRoller
@@ -66,6 +68,10 @@ def test_fires_when_enemy_in_arc_and_range() -> None:
     assert cmd.action == "fire"
     assert cmd.args["slot"] == atk.weapons[0].slot_id
     assert abs(cmd.args["bearing"] - 0.0) < 1.0  # bearing to due-north target
+    # Fires and maneuvers in the same turn: close-in and ahead → hold position.
+    assert cmd.maneuver is not None
+    assert cmd.maneuver.speed == 0.0
+    assert cmd.maneuver.turn == 0.0
 
 
 def test_prefers_shields_down_target_in_solution() -> None:
@@ -89,7 +95,8 @@ def test_skips_disabled_weapon() -> None:
     ai = AIController()
     assert ai._firing_solution(atk, enemy) is None
     cmd = ai.generate_commands(state, controlled_ids=["atk"])["atk"]
-    assert cmd.action != "fire"
+    assert cmd.action == "pass"
+    assert cmd.maneuver is not None
 
 
 def test_choose_target_falls_back_to_in_solution_tier() -> None:
@@ -115,9 +122,30 @@ def test_turns_toward_enemy_outside_arc() -> None:
     enemy = _ship("e", Faction.IMPERIAL_NAVY, Vector2D(50, 0))
     state = _state(atk, enemy)
     cmd = AIController().generate_commands(state, controlled_ids=["atk"])["atk"]
-    assert cmd.action == "turn"
-    assert cmd.args["direction"] == "starboard"
-    assert cmd.args["degrees"] > 0
+    assert cmd.action == "pass"
+    assert cmd.maneuver is not None
+    assert cmd.maneuver.speed is None  # keeps current speed while turning
+    assert 0 < cmd.maneuver.turn <= atk.max_turn_this_turn(atk.speed)  # + = starboard
+
+
+def test_turn_toward_enemy_to_port_is_negative_and_clamped() -> None:
+    atk = _ship("atk", Faction.CHAOS_FLEET, Vector2D(0, 0), heading=0.0)
+    atk.speed = 10.0
+    enemy = _ship("e", Faction.IMPERIAL_NAVY, Vector2D(-50, -50))  # 225°: far to port
+    state = _state(atk, enemy)
+    cmd = AIController().generate_commands(state, controlled_ids=["atk"])["atk"]
+    assert cmd.maneuver is not None
+    assert cmd.maneuver.turn == -atk.max_turn_this_turn(10.0)
+
+
+def test_stationary_ship_pivots_up_to_its_pivot_limit() -> None:
+    atk = _ship("atk", Faction.CHAOS_FLEET, Vector2D(0, 0), heading=0.0)
+    atk.speed = 0.0
+    enemy = _ship("e", Faction.IMPERIAL_NAVY, Vector2D(0, -50))  # dead astern
+    state = _state(atk, enemy)
+    cmd = AIController().generate_commands(state, controlled_ids=["atk"])["atk"]
+    assert cmd.maneuver is not None
+    assert abs(cmd.maneuver.turn) == pytest.approx(min(180.0, atk.max_turn_this_turn(0.0)))
 
 
 def test_closes_distance_when_far_and_ahead() -> None:
@@ -126,8 +154,10 @@ def test_closes_distance_when_far_and_ahead() -> None:
     enemy = _ship("e", Faction.IMPERIAL_NAVY, Vector2D(0, 500))
     state = _state(atk, enemy)
     cmd = AIController().generate_commands(state, controlled_ids=["atk"])["atk"]
-    assert cmd.action == "ahead"
-    assert cmd.args["speed"] > 0
+    assert cmd.action == "pass"
+    assert cmd.maneuver is not None
+    assert cmd.maneuver.speed == atk.effective_speed_max > 0
+    assert cmd.maneuver.turn == 0.0
 
 
 def test_braces_when_crippled() -> None:

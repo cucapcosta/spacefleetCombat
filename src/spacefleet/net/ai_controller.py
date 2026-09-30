@@ -2,8 +2,9 @@
 
 A greedy per-ship fleet pilot: each controlled ship manages its stance,
 picks the nearest enemy (preferring one already exposed by downed shields
-when a firing solution exists), then fires the best bearing weapon, turns
-to face, or accelerates to close.  One ``Command`` per ship per turn.
+when a firing solution exists), fires the best bearing weapon when it can,
+and in the same turn turns to face or accelerates to close.  One
+``Command`` (action plus maneuver) per ship per turn.
 """
 
 from __future__ import annotations
@@ -12,7 +13,7 @@ from typing import TYPE_CHECKING
 
 from spacefleet.combat.fire_control import aim_for
 from spacefleet.core.types import Stance
-from spacefleet.net.commands import Command
+from spacefleet.net.commands import Command, Maneuver
 from spacefleet.spatial.geometry import (
     bearing_from_to,
     distance,
@@ -62,6 +63,7 @@ class AIController:
             return Command(ship_id=ship.id, action="pass")
         target = self._choose_target(ship, enemies)
         self._manage_stance(ship, target)
+        maneuver = self._maneuver(ship, target)
 
         solution = self._firing_solution(ship, target)
         if solution is not None and (
@@ -72,8 +74,9 @@ class AIController:
                 ship_id=ship.id,
                 action="fire",
                 args={"slot": weapon.slot_id, "bearing": bearing, "target": target.id},
+                maneuver=maneuver,
             )
-        return self._maneuver(ship, target)
+        return Command(ship_id=ship.id, action="pass", maneuver=maneuver)
 
     def _choose_target(self, ship: Ship, enemies: list[Ship]) -> Ship:
         """Nearest alive enemy; among those in a firing solution, prefer
@@ -97,7 +100,7 @@ class AIController:
             return None
         return max(candidates, key=lambda c: c[0].weapon.strength)
 
-    def _maneuver(self, ship: Ship, target: Ship) -> Command:
+    def _maneuver(self, ship: Ship, target: Ship) -> Maneuver:
         bearing = bearing_from_to(ship.position, target.position)
         best_range = max(w.weapon.range for w in ship.weapons)
         # Decide "is the target roughly ahead?" by a fixed ±45° PROW cone around
@@ -107,23 +110,17 @@ class AIController:
         ahead = abs(rel) <= PROW_CONE_DEGREES
 
         if not ahead:
-            turn_cap = ship.effective_turn_rate
-            degrees = min(abs(rel), turn_cap)
+            # Turn at the current speed, up to what the ship can manage this turn.
+            degrees = min(abs(rel), ship.max_turn_this_turn(ship.speed))
             if degrees <= 0.0:
-                return Command(ship_id=ship.id, action="stop")
-            direction = "starboard" if rel > 0 else "port"
-            return Command(
-                ship_id=ship.id,
-                action="turn",
-                args={"direction": direction, "degrees": degrees},
-            )
+                return Maneuver(speed=0.0)
+            return Maneuver(turn=degrees if rel > 0 else -degrees)
 
         dist = distance(ship.position, target.position)
         if dist > best_range * ENGAGE_RANGE_FRACTION:
-            speed = ship.effective_speed_max
-            return Command(ship_id=ship.id, action="ahead", args={"speed": speed})
+            return Maneuver(speed=ship.effective_speed_max)
 
-        return Command(ship_id=ship.id, action="stop")
+        return Maneuver(speed=0.0)
 
     def _manage_stance(self, ship: Ship, target: Ship) -> None:
         if ship.stance_cooldown_remaining > 0:
