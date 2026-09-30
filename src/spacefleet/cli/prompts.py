@@ -1,6 +1,6 @@
 """Reusable interactive prompt helpers for server & client setup.
 
-All prompts follow the visual style established in ``cli/app.py``:
+All prompts share one visual style:
 two-space indent, dim defaults in brackets, red errors, bold headers.
 Every function returns ``None`` on Ctrl-C / Ctrl-D so callers can
 cleanly abort.

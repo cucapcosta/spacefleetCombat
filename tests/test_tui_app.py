@@ -291,3 +291,21 @@ def test_module_help_still_works() -> None:
     )
     assert result.returncode == 0
     assert "--server" in result.stdout and "--client" in result.stdout
+
+
+def test_title_art_hides_when_too_narrow_and_returns_when_wide() -> None:
+    from spacefleet.tui.app import SpacefleetApp
+
+    seen: list[bool] = []
+
+    async def go() -> None:
+        app = SpacefleetApp()
+        async with app.run_test(size=(80, 24)) as pilot:
+            await pilot.pause()
+            seen.append(app.screen.query_one("#art").display)
+            await pilot.resize_terminal(140, 40)
+            await pilot.pause()
+            seen.append(app.screen.query_one("#art").display)
+
+    asyncio.run(go())
+    assert seen == [False, True]

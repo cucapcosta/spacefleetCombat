@@ -224,7 +224,7 @@ class HangarScreen(ShellScreen["CampaignState"]):
         offers_list.clear_options()
         for offer in self._offers:
             prompt = Text(offer.hull.name, style="bold")
-            prompt.append(f"\n  {offer.hull.hull_cost} cr · {offer.quote.preview}", style="dim")
+            prompt.append(f"\n  {cost_text(offer.quote.charge, offer.quote.balance)}", style="dim")
             if offer.quote.reason is not None:
                 prompt.stylize("dim", 0, len(offer.hull.name))
                 prompt.append(f"\n  ✗ {offer.quote.reason}", style="red")

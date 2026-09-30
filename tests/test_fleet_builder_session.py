@@ -4,12 +4,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from spacefleet.cli.fleet_builder_cmd import FleetBuilderSession
 from spacefleet.core.types import Faction
 from spacefleet.data.doctrine_registry import DoctrineRegistry
 from spacefleet.data.hull_registry import HullRegistry
 from spacefleet.data.upgrade_registry import UpgradeRegistry
 from spacefleet.data.weapon_registry import WeaponRegistry
+from spacefleet.tui.model.fleet_builder import FleetBuilderSession
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -216,57 +216,3 @@ def test_load_over_budget_rejected(tmp_path: Path) -> None:
     out = tiny.execute(f"load {path}")
     assert "budget" in out.lower()
     assert tiny.fleet.ships == []
-
-
-def test_run_fleet_builder_is_exported() -> None:
-    from spacefleet.cli.fleet_builder_cmd import run_fleet_builder
-
-    assert callable(run_fleet_builder)
-
-
-def test_run_fleet_builder_returns_completed_fleet(monkeypatch) -> None:
-    from spacefleet.cli.fleet_builder_cmd import run_fleet_builder
-    from spacefleet.core.types import Faction
-    from tests.terminal_ui_helpers import FakeTerminalUI
-
-    ui = FakeTerminalUI(
-        choices=["add_ship", "sword_frigate", "done"],
-        texts=["ISS Blade"],
-        confirmations=[True],
-    )
-
-    fleet = run_fleet_builder(
-        faction=Faction.IMPERIAL_NAVY,
-        budget=800,
-        name="Campaign Fleet",
-        ui=ui,
-    )
-
-    assert fleet is not None
-    assert fleet.name == "Campaign Fleet"
-    assert [ship.name for ship in fleet.ships] == ["ISS Blade"]
-
-
-def test_run_fleet_builder_cancel_returns_none(monkeypatch) -> None:
-    from spacefleet.cli.fleet_builder_cmd import run_fleet_builder
-    from spacefleet.core.types import Faction
-    from tests.terminal_ui_helpers import FakeTerminalUI
-
-    ui = FakeTerminalUI(choices=["cancel"], confirmations=[True])
-
-    assert (
-        run_fleet_builder(
-            faction=Faction.IMPERIAL_NAVY,
-            budget=800,
-            name="Campaign Fleet",
-            ui=ui,
-        )
-        is None
-    )
-
-
-def test_app_menu_mentions_fleet_builder() -> None:
-    from spacefleet.cli.app import MENU
-
-    assert "Fleet Builder" in MENU
-    assert "not yet available" not in MENU

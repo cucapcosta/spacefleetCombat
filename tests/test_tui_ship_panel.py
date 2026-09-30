@@ -8,7 +8,6 @@ from typing import TYPE_CHECKING, ClassVar
 from textual.app import App
 from textual.binding import Binding, BindingType
 
-from spacefleet.cli.fitting import FittingChoice as ReexportedChoice
 from spacefleet.tui.model.fitting import (
     FittingChoice,
     Slot,
@@ -28,10 +27,6 @@ if TYPE_CHECKING:
 
 def _spec() -> ShipSpec:
     return campaign_state().roster[0].spec
-
-
-def test_reexport_keeps_cli_import_working() -> None:
-    assert ReexportedChoice is FittingChoice
 
 
 def test_ship_slots_lists_weapons_upgrades_and_doctrine() -> None:

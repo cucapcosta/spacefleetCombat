@@ -29,8 +29,8 @@ The orders-in/state-out design makes the game naturally suited for networked mul
 
 ```
 ┌──────────────────────────────────────────────────────────┐
-│                     CLI Layer                             │
-│  (app, game_cmd, campaign_cmd, fleet_builder, display)   │
+│                     TUI Layer (Textual)                   │
+│  (app, title, campaign, hangar, fleet builder, battle)   │
 │  User input → Commands → Display results                  │
 ├──────────────────────────────────────────────────────────┤
 │                   Campaign Layer                          │
@@ -104,6 +104,6 @@ Pub-sub for decoupled communication. Events: `ShipDamaged`, `ShipDestroyed`, `Mo
 | Package | Purpose |
 |---------|---------|
 | `pyyaml` | YAML data loading |
-| `prompt-toolkit` | Enhanced CLI (completion, colors, history) |
+| `textual` | Full-screen terminal UI (menus, campaign, battle) |
 
 Dev: `pytest`, `pytest-cov`, `ruff`, `mypy`

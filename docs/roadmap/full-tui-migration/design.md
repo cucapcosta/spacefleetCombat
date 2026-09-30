@@ -1,7 +1,7 @@
 # Migração completa para a TUI — Design
 
 **Data:** 2026-09-30
-**Status:** aprovado (2026-09-30), implementação não iniciada
+**Status:** aprovado (2026-09-30), implementado (2026-09-30)
 **Base:** batalha em Textual (commits `aa16090`, `ec42985`) e economia de ação/colisão contínua (`5f6eab2`); regras em `docs/docs/design/turn-structure.md`
 
 ## Objetivo

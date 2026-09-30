@@ -470,7 +470,8 @@ class CampaignScreen(ShellScreen[None]):
         for ship in self.campaign.roster:
             hull = HullRegistry.get(ship.spec.hull_id)
             text.append(f"  {ship.spec.name}")
-            text.append(f" · {hull.name}", style="dim")
+            if hull.name != ship.spec.name:
+                text.append(f" · {hull.name}", style="dim")
             if ship.id == self.campaign.flagship_id:
                 text.append(" ★", style="bold yellow")
             text.append("\n")

@@ -18,7 +18,6 @@ from spacefleet.models.fleet_spec import FleetSpec, ShipSpec, fleet_points
 from spacefleet.persistence.fleet_save import save_fleet
 from spacefleet.tui.model.fleet_builder import (
     BUDGET_ERROR,
-    FleetBuilderSession,
     default_save_path,
     fitting_preview,
     hull_options,
@@ -119,12 +118,6 @@ async def _type_path(pilot: Pilot[None], path: Path) -> None:
 
 
 # ── pure helpers ─────────────────────────────────────────────────────────────
-
-
-def test_session_is_reexported_from_cli() -> None:
-    from spacefleet.cli.fleet_builder_cmd import FleetBuilderSession as Reexported
-
-    assert Reexported is FleetBuilderSession
 
 
 def test_parse_budget_bounds() -> None:

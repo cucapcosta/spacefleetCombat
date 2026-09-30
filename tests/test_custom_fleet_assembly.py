@@ -90,9 +90,9 @@ def test_create_pve_custom_spawns_enemies() -> None:
 
 def test_custom_fleet_full_turn_integration() -> None:
     """Session-built fleet → create_pve_custom → one resolve_turn."""
-    from spacefleet.cli.fleet_builder_cmd import FleetBuilderSession
     from spacefleet.net.commands import Command
     from spacefleet.net.turn_resolver import resolve_turn
+    from spacefleet.tui.model.fleet_builder import FleetBuilderSession
 
     s = FleetBuilderSession(Faction.IMPERIAL_NAVY, budget=1000)
     s.execute("buy dauntless_light_cruiser ISS Flag")

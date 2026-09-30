@@ -117,11 +117,13 @@ spacefleetCombat/
 │       │   ├── skill_registry.py      # Commander skill catalog
 │       │   └── scenario_loader.py     # Scenario/campaign data
 │       │
-│       ├── cli/                       # CLI interface
-│       │   ├── app.py                 # Main app, menus, startup
-│       │   ├── game_cmd.py            # In-battle command interpreter
-│       │   ├── campaign_cmd.py        # Campaign map command interpreter
-│       │   ├── fleet_builder_cmd.py   # Fleet building interface
+│       ├── tui/                       # Textual app (the game UI)
+│       │   ├── app.py                 # SpacefleetApp, entry point
+│       │   ├── screens/               # title, campaign, hangar, fleet builder, battle, online
+│       │   ├── widgets/               # galaxy map, hangar view, ship panel, tactical map, ...
+│       │   └── model/                 # pure helpers (galaxy, ship art, fitting, campaign ops)
+│       │
+│       ├── cli/                       # Text helpers used by the server
 │       │   ├── display.py             # Text formatting, tables
 │       │   ├── colors.py              # ANSI color helpers
 │       │   └── minimap.py             # ASCII minimap
@@ -186,8 +188,11 @@ YAML loading into typed Python objects. Registries for hulls, weapons, upgrades,
 ### `ai/` — Enemy Intelligence
 Evaluates threats, selects targets, generates orders. Produces the same order types as the player.
 
-### `cli/` — User Interface
-Command parsing, display formatting, color output. Now includes `campaign_cmd.py` for the strategic map interface and expanded `fleet_builder_cmd.py` for hull+loadout building.
+### `tui/` — User Interface
+One Textual app (`SpacefleetApp`) with screens for the title menu, campaign (galaxy map), hangar/shipyard, fleet builder, battle and online client. See `docs/roadmap/full-tui-migration/design.md`.
+
+### `cli/` — Server text helpers
+Action parsing, text display and colours used by the multiplayer server, plus the server setup prompts.
 
 ### `persistence/` — Save/Load
 Serialization of both battle state and campaign state. Campaign saves include commander, fleet roster, sector map, economy, and narrative progress.

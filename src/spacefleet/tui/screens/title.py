@@ -29,6 +29,7 @@ from spacefleet.data.hull_registry import HullRegistry
 from spacefleet.tui.model.ship_art import render_art
 
 if TYPE_CHECKING:
+    from textual import events
     from textual.app import ComposeResult
 
 VERSION = "Campaign Edition v0.2"
@@ -157,12 +158,19 @@ class TitleScreen(Screen[None]):
         Binding("ctrl+q,ctrl+c", "choose('quit')", "Quit", show=False),
     ]
 
+    SIDE_WIDTH = 32
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._art = duel_art()
+        self._art_width = max(line.cell_len for line in self._art.split())
+
     def compose(self) -> ComposeResult:
         with Horizontal(id="body"):
             with Vertical(id="main"):
                 yield Static(title_block(), id="banner", markup=False)
                 yield Static(VERSION, id="version", markup=False)
-                yield Static(duel_art(), id="art")
+                yield Static(self._art, id="art")
                 yield Static("In the grim darkness of the far future...", id="motto")
             with Vertical(id="side"):
                 yield Static("Main Menu", id="menu-title", markup=False)
@@ -174,7 +182,15 @@ class TitleScreen(Screen[None]):
                 yield Static("↑/↓ + Enter or letter keys", id="hint", markup=False)
         yield Footer()
 
+    def on_resize(self, event: events.Resize) -> None:
+        self._fit_art(event.size.width)
+
+    def _fit_art(self, width: int) -> None:
+        # Clipped ships look broken; below the art's width show the title alone.
+        self.query_one("#art").display = width - self.SIDE_WIDTH > self._art_width
+
     def on_mount(self) -> None:
+        self._fit_art(self.app.size.width)
         menu = self.query_one("#menu", OptionList)
         menu.highlighted = 0
         menu.focus()

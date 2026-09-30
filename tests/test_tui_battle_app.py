@@ -16,7 +16,6 @@ from spacefleet.core.types import Stance
 from spacefleet.net.ai_controller import AIController
 from spacefleet.net.commands import AbilityOrder, Command, Maneuver
 from spacefleet.net.turn_resolver import TurnLog
-from spacefleet.tui import battle_app
 from spacefleet.tui.battle_app import (
     PLANNING,
     PLAYBACK,
@@ -25,7 +24,6 @@ from spacefleet.tui.battle_app import (
     ConfirmTurnScreen,
     HelpScreen,
     QuitScreen,
-    TuiBattleRunner,
     format_pending,
 )
 from spacefleet.tui.model.orders import OrderDraft, alive_player_ids, predict_move
@@ -439,29 +437,6 @@ def test_format_pending_lists_every_salvo_weapon() -> None:
     assert "bearing 270° rel" in text
     assert ship.weapons[1].display_name in text
     assert "bearing 90° rel" in text
-
-
-def test_runner_suspends_terminal_ui(monkeypatch: pytest.MonkeyPatch) -> None:
-    events: list[str] = []
-
-    class FakeUI:
-        from contextlib import contextmanager
-
-        @contextmanager
-        def suspended(self):  # type: ignore[no-untyped-def]
-            events.append("leave")
-            yield
-            events.append("enter")
-
-    def fake_run(session: BattleSession, **kwargs: Any) -> BattleOutcome:
-        events.append("run")
-        return BattleOutcome.VICTORY
-
-    monkeypatch.setattr(battle_app, "run_battle", fake_run)
-    session = build_battle(campaign_state())
-    runner = TuiBattleRunner(session, ui=FakeUI())  # type: ignore[arg-type]
-    assert runner.run() is BattleOutcome.VICTORY
-    assert events == ["leave", "run", "enter"]
 
 
 def test_turn_limit_must_be_positive() -> None:
