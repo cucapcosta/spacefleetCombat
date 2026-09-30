@@ -9,16 +9,22 @@ from spacefleet.cli.terminal_ui import MenuOption, TerminalClosed, TerminalUI
 # Banner & menu text
 # ─────────────────────────────────────────────────────────────────
 
-_TOP = colored("╔══════════════════════════════════════════════════╗", C.BRIGHT_CYAN)
-_BOT = colored("╚══════════════════════════════════════════════════╝", C.BRIGHT_CYAN)
+_INNER = 50  # box width between the two borders
+_TOP = colored("╔" + "═" * _INNER + "╗", C.BRIGHT_CYAN)
+_BOT = colored("╚" + "═" * _INNER + "╝", C.BRIGHT_CYAN)
 _BAR = colored("║", C.BRIGHT_CYAN)
-_TITLE = bold("S P A C E F L E E T   C O M B A T")
-_VER = dim("Tech Demo v0.1")
+_TITLE = "S P A C E F L E E T   C O M B A T"
+_VER = "Campaign Edition v0.2"
+
+
+def _row(styled: str, plain: str) -> str:
+    return f"{_BAR}  {styled}{' ' * (_INNER - 2 - len(plain))}{_BAR}"
+
 
 BANNER = f"""
 {_TOP}
-{_BAR}  {_TITLE}           {_BAR}
-{_BAR}  {_VER}                                {_BAR}
+{_row(bold(_TITLE), _TITLE)}
+{_row(dim(_VER), _VER)}
 {_BOT}
 """
 

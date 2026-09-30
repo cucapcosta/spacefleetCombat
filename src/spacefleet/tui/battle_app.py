@@ -22,6 +22,7 @@ Arrows (h j k l)        Pan the map while it has focus
 F / C                   Fit every ship / centre on the selected ship
 A / S / D               Overlays: weapon arcs, sensor rings, drift
 o                       Show / hide the side panel (terminals < 120 columns)
+?                       Show this key map (Esc, ? or q closes it)
 q / Ctrl+C              Leave the battle (asks: abandon, surrender, cancel)
 ======================  =====================================================
 
@@ -248,6 +249,32 @@ class QuitScreen(ModalScreen[BattleOutcome | None]):
         self.dismiss(outcomes.get(choice))
 
 
+def _key_map() -> str:
+    """The key table from this module's docstring, without its rules."""
+    rows = (__doc__ or "").split("Key map", 1)[-1].splitlines()
+    rules = [i for i, row in enumerate(rows) if row.startswith("====")]
+    return "\n".join(rows[rules[0] + 1 : rules[-1]]) if len(rules) >= 2 else ""
+
+
+class HelpScreen(ModalScreen[None]):
+    DEFAULT_CSS = """
+    HelpScreen { align: center middle; }
+    HelpScreen > Vertical {
+        width: 84; height: auto; max-height: 90%;
+        border: thick $accent; background: $surface; padding: 1 2;
+    }
+    HelpScreen #keys { height: auto; }
+    """
+    BINDINGS: ClassVar[list[BindingType]] = [
+        Binding("escape,question_mark,q", "dismiss", "Close"),
+    ]
+
+    def compose(self) -> ComposeResult:
+        with Vertical():
+            yield Static("Keys", classes="title")
+            yield Static(_key_map(), id="keys", markup=False)
+
+
 # ── app ─────────────────────────────────────────────────────────────
 
 
@@ -264,6 +291,7 @@ class BattleApp(App[BattleOutcome]):
     """
 
     BINDINGS: ClassVar[list[BindingType]] = [
+        Binding("question_mark", "help", "Help"),
         Binding("enter", "confirm_turn", "Confirm", priority=True),
         Binding("tab", "cycle_ship(1)", "Ship", priority=True),
         Binding("shift+tab", "cycle_ship(-1)", "Ship", show=False, priority=True),
@@ -279,11 +307,11 @@ class BattleApp(App[BattleOutcome]):
         Binding("r", "replay", "Replay"),
         Binding("plus,equals_sign", "faster", "Speed/zoom", show=False),
         Binding("minus,underscore", "slower", "Speed/zoom", show=False),
-        Binding("F", "fit", "Fit"),
-        Binding("C", "center", "Centre"),
-        Binding("A", "overlay('arcs')", "Arcs"),
-        Binding("S", "overlay('sensor')", "Sensor"),
-        Binding("D", "overlay('drift')", "Drift"),
+        Binding("F", "fit", "Fit", show=False),
+        Binding("C", "center", "Centre", show=False),
+        Binding("A", "overlay('arcs')", "Arcs", show=False),
+        Binding("S", "overlay('sensor')", "Sensor", show=False),
+        Binding("D", "overlay('drift')", "Drift", show=False),
         Binding("o", "toggle_side", "Panel"),
         Binding("q", "request_quit", "Quit"),
         Binding("ctrl+c,ctrl+q", "request_quit", "Quit", show=False, priority=True),
@@ -518,6 +546,9 @@ class BattleApp(App[BattleOutcome]):
         if action == "replay":
             return self.timeline is not None and self.phase in (PLANNING, PLAYBACK)
         return True
+
+    def action_help(self) -> None:
+        self.push_screen(HelpScreen())
 
     def action_confirm_turn(self) -> None:
         self.push_screen(

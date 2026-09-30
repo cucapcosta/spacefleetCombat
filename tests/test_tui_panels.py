@@ -4,6 +4,7 @@ import asyncio
 from typing import TYPE_CHECKING, Any
 
 from textual.app import App, ComposeResult
+from textual.widgets import OptionList
 
 from spacefleet.campaign.battle import BattleSession, build_battle
 from spacefleet.core.types import DetectionLevel, Faction, Stance, Vector2D, heading_to_vector
@@ -394,5 +395,48 @@ def test_event_log_append_set_lines_and_clear() -> None:
         assert log.entries[-1] == "line 249"
         log.clear()
         assert log.entries == []
+
+    _run(app, script)
+
+
+def test_enter_on_freshly_opened_submenu_picks_first_option() -> None:
+    session = _session()
+    ship = _player_ship(session)
+    panel = OrderPanel(session, OrderDraft())
+    app = _Harness(panel)
+
+    async def script(pilot: Pilot[None]) -> None:
+        panel.set_ship(ship.id)
+        panel.focus()
+        await pilot.pause()
+        await pilot.press("f")
+        await pilot.pause()
+        opened = panel.mode
+        await pilot.press("enter")
+        await pilot.pause()
+        assert panel.mode != opened
+
+    _run(app, script)
+
+
+def test_cursor_stays_put_when_the_same_menu_rebuilds() -> None:
+    session = _session()
+    ship = _player_ship(session)
+    panel = OrderPanel(session, OrderDraft())
+    app = _Harness(panel)
+
+    async def script(pilot: Pilot[None]) -> None:
+        panel.set_ship(ship.id)
+        panel.focus()
+        await pilot.pause()
+        panel.set_manual_bearing(0.0)
+        await pilot.pause()
+        options = panel.query_one("#op-options", OptionList)
+        slot = options.highlighted
+        assert slot is not None
+        await pilot.press("enter")  # toggles the weapon; menu rebuilds
+        await pilot.pause()
+        assert panel.mode == "fire_weapons"
+        assert options.highlighted == slot
 
     _run(app, script)

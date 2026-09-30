@@ -638,9 +638,19 @@ class OrderPanel(Widget, can_focus=True):
         error.update(self.error_text)
 
         rows = self._options(ship)
+        previous = options.highlighted if self._shown_mode == self.mode else None
         self._shown_mode = self.mode
         options.display = self.mode != "move"
         options.set_options(rows)
+        # set_options drops the highlight; without one, Enter selects nothing.
+        # Keep the cursor in place while the same menu is rebuilt.
+        enabled = [
+            i for i in range(options.option_count) if not options.get_option_at_index(i).disabled
+        ]
+        start = previous or 0
+        options.highlighted = next(
+            (i for i in enabled if i >= start), enabled[0] if enabled else None
+        )
         bearing_input.display = self.mode == "fire_manual"
         if self.mode == "fire_manual":
             bearing_input.value = ""

@@ -425,3 +425,54 @@ def test_real_turn_lance_hit_is_drawn_mid_fire() -> None:
             assert _text(tmap) != drawn, f"{drawn_kinds} at t={t} was not drawn"
 
     _run(scenario)
+
+
+def _cell_char(tmap: TacticalMap, pos: Vector2D) -> str:
+    col, row = tmap.camera.world_to_cell(pos)
+    return tmap.render_lines_text()[row].plain[col]
+
+
+def _trail_frame(trails: dict[str, tuple[Vector2D, Vector2D]]) -> Frame:
+    return Frame(0.5, SHIPS, (), (), (), {}, trails=trails)
+
+
+def test_trail_draws_braille_line_from_move_start_to_current() -> None:
+    async def scenario(app: MapApp, tmap: TacticalMap, pilot: Pilot[None]) -> None:
+        start, now = Vector2D(-20, 30), Vector2D(0, 0)
+        midpoint = Vector2D(-10, 15)
+        tmap.show_frame(_trail_frame({}))
+        assert _cell_char(tmap, midpoint) in (" ", "⠀")
+        tmap.show_frame(_trail_frame({"p1": (start, now)}))
+        assert "⠁" <= _cell_char(tmap, midpoint) <= "⣿"
+        assert _cell_char(tmap, now) == heading_glyph(90.0)  # glyph drawn over the trail
+
+    _run(scenario)
+
+
+def test_trail_of_unknown_ship_is_ignored() -> None:
+    async def scenario(app: MapApp, tmap: TacticalMap, pilot: Pilot[None]) -> None:
+        tmap.show_frame(_trail_frame({}))
+        before = _text(tmap)
+        tmap.show_frame(_trail_frame({"ghost": (Vector2D(-40, -30), Vector2D(0, 0))}))
+        assert _text(tmap) == before
+
+    _run(scenario)
+
+
+def test_select_keeps_camera_when_ship_is_visible() -> None:
+    async def scenario(app: MapApp, tmap: TacticalMap, pilot: Pilot[None]) -> None:
+        center, gu = tmap.camera.center, tmap.camera.gu_per_dot
+        tmap.select("e2")
+        assert (tmap.camera.center, tmap.camera.gu_per_dot) == (center, gu)
+
+    _run(scenario)
+
+
+def test_select_brings_offscreen_ship_into_view() -> None:
+    async def scenario(app: MapApp, tmap: TacticalMap, pilot: Pilot[None]) -> None:
+        tmap.camera.center = Vector2D(9999, 9999)
+        tmap.select("e2")
+        col, row = tmap.camera.world_to_cell(Vector2D(-30, 40))
+        assert 0 <= col < tmap.camera.cols and 0 <= row < tmap.camera.rows
+
+    _run(scenario)

@@ -296,3 +296,114 @@ def test_many_shots_stagger_and_stretch_the_fire_window() -> None:
     assert tl.windows["move"][0] == f1
     assert tl.duration == pytest.approx(f1 + 1.8 + 0.8)
     assert tl.sample(tl.duration).ships == snaps["end"].ships
+
+
+# ── Movement: trails and log ────────────────────────────────────
+
+
+def _movement_only() -> tuple[dict[str, BattleSnapshot], Timeline]:
+    state = GameState.create_pve(["p1"], seed=7)
+    state.ships["p1_sword_1"].speed = 0.0
+    commands = {"p1_sword_1": Command("p1_sword_1", "ahead", {"speed": 8.0})}
+    snaps, log = _run(state, commands)
+    return snaps, TimelineBuilder(snaps, log, "p1").build()
+
+
+def test_trails_follow_moving_ship_through_move_window() -> None:
+    snaps, tl = _duel()
+    m0, m1 = tl.windows["move"]
+    before = snaps["after_fire"].ship("p1_sword_2")
+    after = snaps["after_move"].ship("p1_sword_2")
+    assert before is not None and after is not None
+
+    assert tl.sample(0.0).trails == {}
+    assert tl.sample(m0 - 0.01).trails == {}
+
+    start, current = tl.sample((m0 + m1) / 2).trails["p1_sword_2"]
+    assert start == before.position
+    lo, hi = sorted((before.position.y, after.position.y))
+    assert lo < current.y < hi
+
+    end = snaps["end"].ship("p1_sword_2")
+    assert end is not None
+    assert tl.sample(tl.duration).trails["p1_sword_2"] == (before.position, end.position)
+
+
+def test_stationary_ship_has_no_trail() -> None:
+    snaps, tl = _duel()
+    a = snaps["after_fire"].ship("p1_dauntless")
+    b = snaps["after_move"].ship("p1_dauntless")
+    assert a is not None and b is not None and a.position == b.position
+    m0, m1 = tl.windows["move"]
+    assert "p1_dauntless" not in tl.sample((m0 + m1) / 2).trails
+    assert "p1_dauntless" not in tl.sample(tl.duration).trails
+
+
+def test_hidden_enemy_movement_leaves_no_trail_or_log() -> None:
+    state = _hidden_lancer_state()
+    commands = {"ai_hulk_2": Command("ai_hulk_2", "ahead", {"speed": 10.0})}
+    snaps, log = _run(state, commands)
+    assert any(
+        isinstance(e, turn_resolver.DriftEvent) and e.ship.id == "ai_hulk_2" for e in log.events
+    )
+    assert snaps["after_fire"].ship("ai_hulk_2") is None
+    assert snaps["after_move"].ship("ai_hulk_2") is None
+    tl = TimelineBuilder(snaps, log, "p1").build()
+
+    m0, m1 = tl.windows["move"]
+    for t in ((m0 + m1) / 2, tl.duration):
+        assert "ai_hulk_2" not in tl.sample(t).trails
+    assert all("ai_hulk_2" not in str(tr.payload) for tr in tl.tracks)
+    assert not any("moved" in line or "speed" in line for line in tl.sample(tl.duration).log_lines)
+
+
+def test_movement_only_turn_logs_speed_and_drift() -> None:
+    snaps, tl = _movement_only()
+    before = snaps["after_fire"].ship("p1_sword_1")
+    after = snaps["after_move"].ship("p1_sword_1")
+    assert before is not None and after is not None
+    label = after.label
+    distance = before.position.distance_to(after.position)
+    assert distance > 0.05
+
+    m0, _m1 = tl.windows["move"]
+    assert not any(label in line for line in tl.sample(m0 - 0.01).log_lines)
+    lines = tl.sample(tl.duration).log_lines
+    assert f"{label} speed 0 → 8 GU/turn" in lines
+    assert f"{label} moved {distance:.1f} GU, heading {after.heading:.0f}°" in lines
+
+
+def test_turn_order_is_logged() -> None:
+    state = GameState.create_pve(["p1"], seed=7)
+    turn = {"direction": "starboard", "degrees": 15.0}
+    snaps, log = _run(state, {"p1_sword_1": Command("p1_sword_1", "turn", turn)})
+    tl = TimelineBuilder(snaps, log, "p1").build()
+    label = snaps["after_move"].ship("p1_sword_1").label  # type: ignore[union-attr]
+    assert f"{label} turns starboard 15°" in tl.sample(tl.duration).log_lines
+
+
+def test_fully_absorbed_hit_reads_shield_not_minus_zero() -> None:
+    from spacefleet.core.types import DetectionLevel, Faction
+    from spacefleet.tui.model import timeline
+    from spacefleet.tui.model.snapshot import ShipView
+
+    target = ShipView(
+        id="s1",
+        label="S1",
+        name="S1",
+        faction=Faction.IMPERIAL_NAVY,
+        class_letter="S",
+        position=Vector2D(0.0, 0.0),
+        heading=0.0,
+        detection=DetectionLevel.IDENTIFIED,
+        is_player=True,
+        alive=True,
+    )
+    texts = [
+        tr.payload["text"] for tr in timeline._impact(1.0, target, 0) if tr.kind == "damage_text"
+    ]
+    assert texts == ["shield"]
+    texts = [
+        tr.payload["text"] for tr in timeline._impact(1.0, target, 3) if tr.kind == "damage_text"
+    ]
+    assert texts == ["-3"]

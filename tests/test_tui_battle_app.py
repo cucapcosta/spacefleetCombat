@@ -7,6 +7,8 @@ from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Any
 
 import pytest
+from textual.widgets import Static
+from textual.widgets._footer import FooterKey
 
 from spacefleet.campaign.battle import BattleSession, build_battle
 from spacefleet.campaign.models import BattleOutcome
@@ -20,6 +22,7 @@ from spacefleet.tui.battle_app import (
     PLAYBACK,
     BattleApp,
     ConfirmTurnScreen,
+    HelpScreen,
     QuitScreen,
     TuiBattleRunner,
     format_pending,
@@ -488,3 +491,48 @@ def test_clicking_own_ship_on_map_selects_it() -> None:
         await pilot.press("q", "y")
 
     _run(session, scenario)
+
+
+def test_tab_keeps_the_fitted_camera_when_the_ship_is_visible() -> None:
+    session = build_battle(campaign_state())
+
+    async def scenario(app: BattleApp, pilot: Pilot[BattleOutcome]) -> None:
+        cam = app.tactical_map.camera
+        before = (cam.center, cam.gu_per_dot)
+        await pilot.press("tab")
+        assert (cam.center, cam.gu_per_dot) == before
+        await pilot.press("q", "y")
+
+    _run(session, scenario)
+
+
+@pytest.mark.parametrize("close_key", ["escape", "question_mark", "q"])
+def test_help_screen_opens_and_closes_without_side_effects(close_key: str) -> None:
+    session = build_battle(campaign_state())
+
+    async def scenario(app: BattleApp, pilot: Pilot[BattleOutcome]) -> None:
+        await pilot.press("question_mark")
+        await pilot.pause()
+        assert isinstance(app.screen, HelpScreen)
+        assert "Replay the last resolved turn" in str(app.screen.query_one("#keys", Static).content)
+        await pilot.press(close_key)
+        await pilot.pause()
+        assert not isinstance(app.screen, HelpScreen | QuitScreen)
+        assert app.phase == PLANNING
+        assert app.return_value is None
+        await pilot.press("q", "y")
+
+    _run(session, scenario)
+
+
+def test_help_key_is_visible_in_the_footer_at_120_columns() -> None:
+    session = build_battle(campaign_state())
+
+    async def scenario(app: BattleApp, pilot: Pilot[BattleOutcome]) -> None:
+        keys = {k.action: k for k in app.query(FooterKey)}
+        assert "help" in keys
+        assert keys["help"].region.right <= 120
+        assert not {"fit", "center", "overlay('arcs')"} & set(keys)
+        await pilot.press("q", "y")
+
+    _run(session, scenario, size=(120, 40))

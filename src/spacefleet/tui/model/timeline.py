@@ -160,6 +160,8 @@ class Frame:
     log_lines: tuple[str, ...]  # log entries whose time has passed, in order
     bars: dict[str, Bars]  # player ship id -> interpolated bars
     incoming: tuple[tuple[str, float], ...] = ()  # (target ship id, absolute bearing)
+    # ship id -> (move-start position, current position) for visible ships that moved
+    trails: dict[str, tuple[Vector2D, Vector2D]] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -206,6 +208,7 @@ class Timeline:
             log_lines=tuple(log_lines),
             bars=self._bars(t),
             incoming=tuple(incoming),
+            trails=self._trails(t, ships),
         )
 
     # ── helpers ──────────────────────────────────────────────
@@ -235,6 +238,21 @@ class Timeline:
         else:
             ships, projectiles = self._snap("end").ships, self._snap("end").projectiles
         return self._with_deaths(ships, t), projectiles
+
+    def _trails(
+        self, t: float, ships: tuple[ShipView, ...]
+    ) -> dict[str, tuple[Vector2D, Vector2D]]:
+        if t < self.windows["move"][0]:
+            return {}
+        b_by = {s.id: s for s in self._snap("after_move").ships}
+        shown = {s.id: s.position for s in ships}
+        trails: dict[str, tuple[Vector2D, Vector2D]] = {}
+        for sa in self._snap("after_fire").ships:
+            sb = b_by.get(sa.id)
+            if sb is None or sa.position.distance_to(sb.position) <= 1e-6:
+                continue
+            trails[sa.id] = (sa.position, shown.get(sa.id, sb.position))
+        return trails
 
     def _with_deaths(self, ships: tuple[ShipView, ...], t: float) -> tuple[ShipView, ...]:
         out = []
@@ -600,6 +618,12 @@ class TimelineBuilder:
             return self._morale(ev, window)
         if isinstance(ev, StanceChangeEvent):
             return self._stance(ev, window)
+        if isinstance(ev, SpeedChangeEvent):
+            return self._speed(ev, window)
+        if isinstance(ev, TurnOrderEvent):
+            return self._turn(ev, window)
+        if isinstance(ev, DriftEvent):
+            return self._drift(ev, window)
         return None
 
     def _ability(
@@ -873,6 +897,32 @@ class TimelineBuilder:
 
         return _Item(window, False, make)
 
+    def _speed(self, ev: SpeedChangeEvent, window: str) -> _Item | None:
+        view = self._view(window, ev.ship.id, DetectionLevel.CONTACT)
+        if view is None:
+            return None
+        text = f"{view.label} speed {ev.old_speed:g} → {ev.new_speed:g} GU/turn"
+        return _Item(window, True, lambda t: [_log(t, text)])
+
+    def _turn(self, ev: TurnOrderEvent, window: str) -> _Item | None:
+        view = self._view(window, ev.ship.id, DetectionLevel.CONTACT)
+        if view is None:
+            return None
+        text = f"{view.label} turns {ev.direction} {abs(ev.degrees):g}°"
+        return _Item(window, True, lambda t: [_log(t, text)])
+
+    def _drift(self, ev: DriftEvent, window: str) -> _Item | None:
+        before = self._view(window, ev.ship.id, DetectionLevel.CONTACT, order=("after_fire",))
+        after = self._view(window, ev.ship.id, DetectionLevel.CONTACT, order=("after_move",))
+        if before is None or after is None:
+            return None
+        distance = before.position.distance_to(after.position)
+        if distance < 0.05 and before.heading == after.heading:
+            return None
+        heading = f", heading {after.heading:.0f}°" if after.heading is not None else ""
+        text = f"{after.label} moved {distance:.1f} GU{heading}"
+        return _Item(window, True, lambda t: [_log(t, text)])
+
 
 # ── track helpers ────────────────────────────────────────────
 
@@ -888,7 +938,8 @@ def _damage_text(t: float, target: ShipView, text: str) -> Track:
 
 def _impact(t: float, target: ShipView, damage: int) -> list[Track]:
     payload = {"target_id": target.id, "position": target.position, "damage": damage}
-    return [Track(t, t + _IMPACT, "impact", payload), _damage_text(t, target, f"-{damage}")]
+    text = f"-{damage}" if damage else "shield"  # 0 = fully absorbed by shields
+    return [Track(t, t + _IMPACT, "impact", payload), _damage_text(t, target, text)]
 
 
 def _incoming(t: float, target: ShipView, bearing: float) -> Track:

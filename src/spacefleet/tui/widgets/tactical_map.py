@@ -134,6 +134,7 @@ class TacticalMap(Widget, can_focus=True):
         self._projectiles: tuple[ProjectileView, ...] = ()
         self._effects: tuple[Effect, ...] = ()
         self._incoming: tuple[tuple[str, float], ...] = ()
+        self._trails: dict[str, tuple[Vector2D, Vector2D]] = {}
         self._frame_t: float | None = None
         self._tick = 0
         self._fitted = False
@@ -157,6 +158,7 @@ class TacticalMap(Widget, can_focus=True):
         self._projectiles = snapshot.projectiles
         self._effects = ()
         self._incoming = ()
+        self._trails = {}
         self._frame_t = None
         self._maybe_autofit()
         self.refresh()
@@ -166,13 +168,15 @@ class TacticalMap(Widget, can_focus=True):
         self._projectiles = frame.projectiles
         self._effects = frame.effects
         self._incoming = frame.incoming
+        self._trails = frame.trails
         self._frame_t = frame.t
         self._maybe_autofit()
         self.refresh()
 
-    def select(self, ship_id: str | None, *, center: bool = True) -> None:
+    def select(self, ship_id: str | None, *, center: bool = False) -> None:
+        """Select *ship_id*; the camera only moves if it is off screen (or *center*)."""
         self.selected = ship_id
-        if center:
+        if center or not self._selected_visible():
             self.center_on_selected()
         self.refresh()
 
@@ -220,6 +224,14 @@ class TacticalMap(Widget, can_focus=True):
         if ship is not None:
             self.camera.center = ship.position
             self.refresh()
+
+    def _selected_visible(self) -> bool:
+        ship = self.ship(self.selected) if self.selected else None
+        if ship is None or not (self.size.width and self.size.height):
+            return True
+        self._sync_size()
+        col, row = self.camera.world_to_cell(ship.position)
+        return 0 <= col < self.camera.cols and 0 <= row < self.camera.rows
 
     def fit_all(self) -> None:
         self._sync_size()
@@ -336,6 +348,7 @@ class TacticalMap(Widget, can_focus=True):
         self._draw_preview(canvas)
         self._draw_effect_geometry(canvas)
         self._draw_projectiles(canvas)
+        self._draw_trails(canvas)
         self._draw_ships(canvas)
         self._draw_incoming(canvas)
         self._draw_effect_text(canvas)
@@ -375,6 +388,15 @@ class TacticalMap(Widget, can_focus=True):
             canvas.put_text(col, row, glyph, style)
             if ship.label and ship.label != "?":
                 canvas.put_text(col + 1, row, ship.label, "dim" if not ship.alive else normal)
+
+    def _draw_trails(self, canvas: BrailleCanvas) -> None:
+        """Dim line from each moving ship's start to where it is now."""
+        for ship_id, (start, now) in self._trails.items():
+            ship = self.ship(ship_id)
+            if ship is None:
+                continue
+            normal, _bright = _FACTION_STYLE.get(ship.faction, ("white", "bold white"))
+            canvas.line(*self._dot(start), *self._dot(now), f"dim {normal}")
 
     def _draw_projectiles(self, canvas: BrailleCanvas) -> None:
         for proj in self._projectiles:

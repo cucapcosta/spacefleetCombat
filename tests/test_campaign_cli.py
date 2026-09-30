@@ -264,3 +264,15 @@ def test_app_menu_mentions_local_campaign() -> None:
     from spacefleet.cli.app import MENU
 
     assert "Campaign" in MENU
+
+
+def test_app_banner_names_the_edition_in_an_aligned_box() -> None:
+    import re
+
+    from spacefleet.cli.app import BANNER
+
+    plain = re.sub(r"\x1b\[[0-9;]*m", "", BANNER)
+    lines = [line for line in plain.splitlines() if line]
+    assert "Campaign Edition v0.2" in plain
+    assert "Tech Demo" not in plain
+    assert len({len(line) for line in lines}) == 1
