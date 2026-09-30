@@ -2,7 +2,7 @@
 
 Supports three modes:
 
-    python -m spacefleet                          # interactive menu (default)
+    python -m spacefleet                          # Textual app (default)
     python -m spacefleet --server --port 9876     # start game server
     python -m spacefleet --client HOST --port 9876 --user alice  # connect as client
 """
@@ -60,10 +60,10 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main() -> None:
-    """Dispatch to menu, server, or client based on CLI flags."""
+def main(argv: list[str] | None = None) -> None:
+    """Dispatch to the app, server, or client based on CLI flags."""
     parser = _build_parser()
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     if args.server:
         from spacefleet.net.server import main as server_main
@@ -90,8 +90,8 @@ def main() -> None:
         client_main(client_argv)
 
     else:
-        # Default: interactive menu
-        from spacefleet.cli.app import main as app_main
+        # Default: the Textual app (title screen)
+        from spacefleet.tui.app import main as app_main
 
         app_main()
 
